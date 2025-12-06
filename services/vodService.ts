@@ -138,31 +138,48 @@ export const fetchCategoryItems = async (
             else tag = '热门';
 
             // Logic for Filter 2 (Region)
-            if (filter2 !== '全部') tag = filter2; // Douban usually takes one main tag. Region is a good tag.
+            if (filter2 === '华语') tag = '华语';
+            else if (filter2 === '欧美') tag = '欧美';
+            else if (filter2 === '韩国') tag = '韩国';
+            else if (filter2 === '日本') tag = '日本';
+            else if (filter2 !== '全部') tag = filter2;
             break;
 
         case 'series':
             type = 'tv';
             tag = '热门';
-            if (filter1 === '最近热门') sort = 'recommend'; // default
+            if (filter1 === '最近热门') sort = 'recommend';
             
-            if (filter2 !== '全部') tag = filter2;
+            // Map UI regions to correct Douban TV Tags
+            if (filter2 === '国产') tag = '国产剧';
+            else if (filter2 === '欧美') tag = '美剧'; // Douban uses '美剧' primarily
+            else if (filter2 === '日本') tag = '日剧';
+            else if (filter2 === '韩国') tag = '韩剧';
+            else if (filter2 === '动漫') tag = '日本动画';
+            else if (filter2 === '纪录片') tag = '纪录片';
+            else if (filter2 !== '全部') tag = filter2;
             break;
 
         case 'anime':
             type = 'tv';
             tag = '日本动画';
             if (filter1 === '剧场版') tag = '剧场版';
-            // "每日放送" logic is hard to map exactly without backend, defaulting to 'time' sort for '日本动画'
-            if (filter1 === '每日放送') { tag = '日本动画'; sort = 'time'; }
+            else if (filter1 === '番剧') tag = '日本动画';
             
+            // Weekday filter handling:
+            // Since Douban doesn't have explicit "Monday" tags in public API, 
+            // we map specific days to '日本动画' sorted by time to show latest updates.
+            if (['周一', '周二', '周三', '周四', '周五', '周六', '周日'].includes(filter2)) {
+                 tag = '日本动画';
+                 sort = 'time';
+            }
             break;
 
         case 'variety':
             type = 'tv';
             tag = '综艺';
             if (filter2 === '国内') tag = '大陆综艺';
-            if (filter2 === '国外') tag = '国外综艺'; 
+            else if (filter2 === '国外') tag = '欧美综艺'; // '国外' is ambiguous, map to '欧美综艺' as fallback
             break;
             
         default:
