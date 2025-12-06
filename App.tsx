@@ -63,19 +63,17 @@ const NavBar = ({ activeTab, onTabChange }: { activeTab: string, onTabChange: (t
                         ))}
                     </div>
 
-                    <div className="lg:hidden flex items-center gap-4 overflow-x-auto no-scrollbar w-full ml-4 mask-linear-fade">
+                    <div className="lg:hidden flex-1 flex items-center justify-end gap-2 overflow-x-auto no-scrollbar ml-2 mask-linear-fade">
                          {navItems.map(item => (
                             <button
                                 key={item.id}
                                 onClick={() => onTabChange(item.id)}
-                                className={`flex flex-col items-center justify-center min-w-[3rem] gap-1 text-[10px] font-medium transition-colors ${
-                                    activeTab === item.id ? 'text-brand' : 'text-gray-400'
+                                className={`flex-shrink-0 flex items-center justify-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
+                                    activeTab === item.id ? 'bg-white/10 text-brand' : 'text-gray-400'
                                 }`}
                             >
-                                <div className={`${activeTab === item.id ? 'bg-brand/10 p-1.5 rounded-lg' : 'p-1.5'}`}>
-                                    {React.cloneElement(item.icon, { className: 'w-5 h-5' })}
-                                </div>
-                                <span className="whitespace-nowrap">{item.label}</span>
+                                {React.cloneElement(item.icon, { className: 'w-4 h-4' })}
+                                <span>{item.label}</span>
                             </button>
                         ))}
                     </div>
@@ -127,18 +125,18 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
     const posterUrl = detail?.pic || currentItem.vod_pic;
 
     return (
-        <div className="relative w-full h-[40vh] md:h-[50vh] lg:h-[55vh] rounded-3xl overflow-hidden mb-12 shadow-2xl border border-white/5 group mt-8 flex justify-center items-center">
+        <div className="relative w-full h-[45vh] md:h-[50vh] lg:h-[55vh] rounded-2xl md:rounded-3xl overflow-hidden mb-8 md:mb-12 shadow-2xl border border-white/5 group mt-4 md:mt-8 flex justify-center items-center">
             <div className={`absolute inset-0 transition-opacity duration-700 ${isFading ? 'opacity-0' : 'opacity-100'}`}>
                 <ImageWithFallback 
                     src={displayPoster}
                     searchKeyword={currentItem.vod_name}
                     className="w-full h-full object-cover object-top opacity-100 transition-transform duration-[10s] ease-linear group-hover:scale-110"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#020617] via-[#020617]/50 to-transparent"></div>
-                <div className="absolute inset-0 bg-gradient-to-r from-[#020617] via-[#020617]/70 to-transparent"></div>
+                <div className="absolute inset-0 bg-gradient-to-t from-[#020617] via-[#020617]/60 to-transparent"></div>
+                <div className="absolute inset-0 bg-gradient-to-r from-[#020617] via-[#020617]/50 to-transparent"></div>
             </div>
 
-            <div className={`absolute inset-0 z-10 flex items-end md:items-center justify-center p-6 md:p-12 lg:p-16 transition-opacity duration-700 ${isFading ? 'opacity-0' : 'opacity-100'}`}>
+            <div className={`absolute inset-0 z-10 flex items-end md:items-center justify-center p-4 md:p-12 lg:p-16 transition-opacity duration-700 ${isFading ? 'opacity-0' : 'opacity-100'}`}>
                 <div className="flex items-center gap-8 lg:gap-12 w-full max-w-6xl mx-auto justify-center">
                     
                     <div className="hidden md:block w-48 lg:w-60 flex-shrink-0 aspect-[2/3] rounded-xl overflow-hidden shadow-2xl border-2 border-white/10 transform -rotate-2 hover:rotate-0 transition-all duration-500 z-20 bg-gray-900">
@@ -149,28 +147,28 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
                         />
                     </div>
 
-                    <div className="flex-1 flex flex-col gap-4 md:gap-6 pb-8 md:pb-0 items-start">
-                        <div className="flex items-center gap-3">
-                            <span className="bg-brand text-black text-xs font-bold px-2 py-0.5 rounded shadow-lg shadow-brand/20">Featured</span>
-                            {currentItem.vod_year && <span className="text-gray-200 text-sm font-medium border border-white/20 px-2 rounded bg-black/40 backdrop-blur-sm">{currentItem.vod_year}</span>}
-                            {(currentItem.vod_score || detail?.score) && <span className="text-yellow-400 text-sm font-bold flex items-center gap-1 bg-black/40 backdrop-blur-sm px-2 py-0.5 rounded">★ {detail?.score || currentItem.vod_score}</span>}
+                    <div className="flex-1 flex flex-col gap-3 md:gap-6 pb-6 md:pb-0 items-start">
+                        <div className="flex items-center gap-2 md:gap-3">
+                            <span className="bg-brand text-black text-[10px] md:text-xs font-bold px-2 py-0.5 rounded shadow-lg shadow-brand/20">Featured</span>
+                            {currentItem.vod_year && <span className="text-gray-200 text-xs md:text-sm font-medium border border-white/20 px-2 rounded bg-black/40 backdrop-blur-sm">{currentItem.vod_year}</span>}
+                            {(currentItem.vod_score || detail?.score) && <span className="text-yellow-400 text-xs md:text-sm font-bold flex items-center gap-1 bg-black/40 backdrop-blur-sm px-2 py-0.5 rounded">★ {detail?.score || currentItem.vod_score}</span>}
                             <span className="bg-white/20 backdrop-blur-md px-1.5 py-0.5 rounded text-[10px] text-gray-200">{currentItem.type_name}</span>
                         </div>
 
-                        <h1 className="text-4xl md:text-5xl lg:text-7xl font-bold text-white tracking-tight leading-none drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)]">
+                        <h1 className="text-3xl md:text-5xl lg:text-7xl font-bold text-white tracking-tight leading-none drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] line-clamp-2">
                             {currentItem.vod_name}
                         </h1>
 
-                        <p className="text-gray-100 text-sm md:text-lg leading-relaxed line-clamp-3 md:line-clamp-4 max-w-2xl drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] font-medium">
+                        <p className="text-gray-200 text-xs md:text-lg leading-relaxed line-clamp-2 md:line-clamp-4 max-w-2xl drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] font-medium">
                             {detail?.content || '暂无简介...'}
                         </p>
 
-                        <div className="flex items-center gap-4 pt-4">
+                        <div className="flex items-center gap-4 pt-2 md:pt-4">
                             <button 
                                 onClick={() => onPlay(currentItem)}
-                                className="bg-brand hover:bg-brand-hover text-black font-bold py-3 px-8 rounded-xl flex items-center gap-2 transition-all hover:scale-105 shadow-[0_0_20px_rgba(34,197,94,0.4)]"
+                                className="bg-brand hover:bg-brand-hover text-black font-bold py-2 md:py-3 px-6 md:px-8 rounded-xl flex items-center gap-2 transition-all hover:scale-105 shadow-[0_0_20px_rgba(34,197,94,0.4)] text-sm md:text-base"
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 md:w-6 md:h-6">
                                     <path fillRule="evenodd" d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653z" clipRule="evenodd" />
                                 </svg>
                                 立即播放
@@ -180,7 +178,7 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
                 </div>
             </div>
 
-            <div className="absolute bottom-6 right-6 flex gap-2 z-20">
+            <div className="absolute bottom-4 md:bottom-6 right-4 md:right-6 flex gap-1.5 md:gap-2 z-20">
                 {items.map((_, idx) => (
                     <button
                         key={idx}
@@ -191,7 +189,7 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
                                 setIsFading(false);
                             }, 600);
                         }}
-                        className={`h-1.5 rounded-full transition-all duration-300 ${idx === currentIndex ? 'w-6 bg-brand' : 'w-2 bg-white/50 hover:bg-white/80'}`}
+                        className={`h-1.5 rounded-full transition-all duration-300 ${idx === currentIndex ? 'w-4 md:w-6 bg-brand' : 'w-1.5 md:w-2 bg-white/50 hover:bg-white/80'}`}
                     />
                 ))}
             </div>
@@ -218,8 +216,8 @@ const HorizontalSection = ({ title, items, id, onItemClick }: {
     if (!items || items.length === 0) return null;
     
     return (
-      <div className="mb-10 relative group">
-          <h3 className="text-xl font-bold text-white mb-4 pl-2 border-l-4 border-brand flex items-center gap-2">
+      <div className="mb-8 md:mb-10 relative group">
+          <h3 className="text-lg md:text-xl font-bold text-white mb-4 pl-2 border-l-4 border-brand flex items-center gap-2">
               {title} <span className="text-xs text-gray-500 font-normal ml-2">HOT</span>
           </h3>
           
@@ -230,20 +228,23 @@ const HorizontalSection = ({ title, items, id, onItemClick }: {
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
           </button>
 
-          <div ref={scrollRef} className="flex gap-4 overflow-x-auto pb-4 no-scrollbar scroll-smooth px-1">
-              {items.map((item) => (
-                  <div key={item.vod_id} onClick={() => onItemClick(item)} className="flex-shrink-0 w-36 md:w-44 cursor-pointer group relative">
-                      <div className="aspect-[2/3] rounded-xl overflow-hidden bg-gray-900 border border-white/10 relative shadow-lg group-hover:shadow-brand/20 transition-all duration-300 group-hover:-translate-y-1">
-                           <ImageWithFallback src={item.vod_pic || ''} alt={item.vod_name || 'Poster'} searchKeyword={item.vod_name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
-                          {item.vod_score && (
-                              <div className="absolute top-1.5 right-1.5 bg-black/70 backdrop-blur text-yellow-400 text-xs font-bold px-1.5 py-0.5 rounded border border-white/10">{item.vod_score}</div>
-                          )}
-                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/60 to-transparent p-3 pt-10">
-                              <h4 className="text-sm font-bold text-white truncate group-hover:text-brand transition-colors">{item.vod_name}</h4>
+          {/* Negative margin on mobile to allow edge-to-edge scrolling feel within a padded container */}
+          <div className="-mx-4 md:mx-0 px-4 md:px-0">
+              <div ref={scrollRef} className="flex gap-3 md:gap-4 overflow-x-auto pb-4 no-scrollbar scroll-smooth">
+                  {items.map((item) => (
+                      <div key={item.vod_id} onClick={() => onItemClick(item)} className="flex-shrink-0 w-28 sm:w-36 md:w-44 cursor-pointer group relative">
+                          <div className="aspect-[2/3] rounded-lg md:rounded-xl overflow-hidden bg-gray-900 border border-white/10 relative shadow-lg group-hover:shadow-brand/20 transition-all duration-300 group-hover:-translate-y-1">
+                               <ImageWithFallback src={item.vod_pic || ''} alt={item.vod_name || 'Poster'} searchKeyword={item.vod_name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                              {item.vod_score && (
+                                  <div className="absolute top-1.5 right-1.5 bg-black/70 backdrop-blur text-yellow-400 text-[10px] md:text-xs font-bold px-1.5 py-0.5 rounded border border-white/10">{item.vod_score}</div>
+                              )}
+                              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/60 to-transparent p-2 md:p-3 pt-8 md:pt-10">
+                                  <h4 className="text-xs md:text-sm font-bold text-white truncate group-hover:text-brand transition-colors">{item.vod_name}</h4>
+                              </div>
                           </div>
                       </div>
-                  </div>
-              ))}
+                  ))}
+              </div>
           </div>
       </div>
     );
@@ -293,19 +294,19 @@ const FilterSection = ({
 
     return (
         <div className="mb-8">
-            <h2 className="text-3xl font-bold text-white mb-2">{config.title}</h2>
-            {config.desc && <p className="text-gray-400 text-sm mb-6">{config.desc}</p>}
+            <h2 className="text-2xl md:text-3xl font-bold text-white mb-2">{config.title}</h2>
+            {config.desc && <p className="text-gray-400 text-xs md:text-sm mb-4 md:mb-6">{config.desc}</p>}
             
             <div className="bg-[#121620] border border-white/5 rounded-2xl p-4 md:p-6 shadow-xl backdrop-blur-sm">
                 {/* Row 1 */}
-                <div className="flex items-center gap-4 mb-4 overflow-x-auto no-scrollbar pb-1">
-                    <span className="text-gray-400 text-sm font-medium whitespace-nowrap min-w-[3rem]">{config.row1.label}</span>
+                <div className="flex items-center gap-3 md:gap-4 mb-4 overflow-x-auto no-scrollbar pb-1">
+                    <span className="text-gray-400 text-xs md:text-sm font-medium whitespace-nowrap min-w-[3rem]">{config.row1.label}</span>
                     <div className="flex gap-2">
                         {config.row1.options.map((opt: string) => (
                             <button
                                 key={opt}
                                 onClick={() => onFilter1Change(opt)}
-                                className={`px-4 py-1.5 rounded-full text-xs md:text-sm font-medium transition-all whitespace-nowrap ${
+                                className={`px-3 md:px-4 py-1.5 rounded-full text-xs md:text-sm font-medium transition-all whitespace-nowrap ${
                                     filter1 === opt 
                                     ? 'bg-gray-600/80 text-white shadow-lg' 
                                     : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'
@@ -318,14 +319,14 @@ const FilterSection = ({
                 </div>
 
                 {/* Row 2 */}
-                <div className="flex items-center gap-4 overflow-x-auto no-scrollbar pb-1">
-                    <span className="text-gray-400 text-sm font-medium whitespace-nowrap min-w-[3rem]">{config.row2.label}</span>
+                <div className="flex items-center gap-3 md:gap-4 overflow-x-auto no-scrollbar pb-1">
+                    <span className="text-gray-400 text-xs md:text-sm font-medium whitespace-nowrap min-w-[3rem]">{config.row2.label}</span>
                     <div className="flex gap-2">
                         {config.row2.options.map((opt: string) => (
                             <button
                                 key={opt}
                                 onClick={() => onFilter2Change(opt)}
-                                className={`px-4 py-1.5 rounded-full text-xs md:text-sm font-medium transition-all whitespace-nowrap ${
+                                className={`px-3 md:px-4 py-1.5 rounded-full text-xs md:text-sm font-medium transition-all whitespace-nowrap ${
                                     filter2 === opt 
                                     ? 'bg-gray-600/80 text-white shadow-lg' 
                                     : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'
@@ -404,16 +405,16 @@ const CategoryGrid = ({ category, onItemClick }: { category: string, onItemClick
                     <div className="animate-spin h-10 w-10 border-4 border-brand border-t-transparent rounded-full"></div>
                 </div>
             ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 md:gap-6">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-6">
                     {items.map((item) => (
                         <div key={item.vod_id} onClick={() => onItemClick(item)} className="group cursor-pointer relative bg-gray-900 rounded-lg overflow-hidden aspect-[2/3] ring-1 ring-white/5 hover:ring-brand hover:shadow-[0_0_20px_rgba(34,197,94,0.15)] transition-all duration-300 hover:-translate-y-1">
                             <ImageWithFallback src={item.vod_pic || ''} alt={item.vod_name || 'Poster'} searchKeyword={item.vod_name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
                             <div className="absolute top-0 right-0 p-1.5 z-10">
                                 {item.vod_score && <span className="bg-black/60 backdrop-blur-md text-[10px] text-yellow-400 px-1.5 py-0.5 rounded border border-white/10 shadow-lg font-bold">★ {item.vod_score}</span>}
                             </div>
-                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12">
-                                <h4 className="text-sm font-bold text-white truncate group-hover:text-brand transition-colors">{item.vod_name}</h4>
-                                <div className="flex justify-between items-center mt-1.5 text-[10px] text-gray-400 font-medium">
+                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent p-2 md:p-3 pt-10">
+                                <h4 className="text-xs md:text-sm font-bold text-white truncate group-hover:text-brand transition-colors">{item.vod_name}</h4>
+                                <div className="flex justify-between items-center mt-1 text-[10px] text-gray-400 font-medium">
                                     <span className="bg-white/10 px-1.5 py-0.5 rounded">{item.type_name || '影视'}</span>
                                     <span>{item.vod_year}</span>
                                 </div>
@@ -743,16 +744,16 @@ const App: React.FC = () => {
                                     <div className="animate-spin h-10 w-10 border-4 border-brand border-t-transparent rounded-full"></div>
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 md:gap-6">
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-6">
                                     {searchResults.map((item) => (
                                         <div key={item.vod_id} onClick={() => handleItemClick(item)} className="group cursor-pointer relative bg-gray-900 rounded-lg overflow-hidden aspect-[2/3] ring-1 ring-white/5 hover:ring-brand hover:shadow-[0_0_20px_rgba(34,197,94,0.15)] transition-all duration-300 hover:-translate-y-1">
                                             <ImageWithFallback src={item.vod_pic || ''} alt={item.vod_name || 'Poster'} searchKeyword={item.vod_name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
                                             <div className="absolute top-0 right-0 p-1.5 z-10">
                                                 <span className="bg-black/60 backdrop-blur-md text-[10px] text-white px-1.5 py-0.5 rounded border border-white/10 shadow-lg">{item.vod_remarks || '高清'}</span>
                                             </div>
-                                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12">
-                                                <h4 className="text-sm font-bold text-white truncate group-hover:text-brand transition-colors">{item.vod_name}</h4>
-                                                <div className="flex justify-between items-center mt-1.5 text-[10px] text-gray-400 font-medium">
+                                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent p-2 md:p-3 pt-12">
+                                                <h4 className="text-xs md:text-sm font-bold text-white truncate group-hover:text-brand transition-colors">{item.vod_name}</h4>
+                                                <div className="flex justify-between items-center mt-1 text-[10px] text-gray-400 font-medium">
                                                     <span className="bg-white/10 px-1.5 py-0.5 rounded">{item.type_name || '影视'}</span>
                                                     <span>{item.vod_year}</span>
                                                 </div>
