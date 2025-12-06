@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { getHomeSections, searchMovies, getMovieDetail, parseEpisodes, enrichVodDetail, fetchDoubanData, fetchCategoryItems } from './services/vodService';
 import VideoPlayer from './components/VideoPlayer';
@@ -19,6 +20,11 @@ const NavIcons = {
 
 // React Declaration at top level to avoid TDZ issues in some bundlers/environments
 const ReactRef = React;
+
+// Helper to remove spaces and punctuation for comparison
+const normalizeTitle = (str: string) => {
+    return str.replace(/\s+/g, '').replace(/[：:,.，。!！?？]/g, '').toLowerCase();
+};
 
 const NavBar = ({ activeTab, onTabChange }: { activeTab: string, onTabChange: (tab: string) => void }) => {
     const navItems = [
@@ -266,7 +272,7 @@ const FILTER_CONFIG: any = {
         title: '综艺',
         desc: '来自豆瓣的精选内容',
         row1: { label: '分类', options: ['全部', '最近热门'] },
-        row2: { label: '类型', options: ['全部', '国内', '国外'] }
+        row2: { label: '类型', options: ['全部', '大陆', '日本', '韩国', '欧美', '港台'] }
     }
 };
 
@@ -335,6 +341,12 @@ const FilterSection = ({
     );
 };
 
+// Helper to get current weekday in string format
+const getCurrentWeekday = () => {
+    const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+    return days[new Date().getDay()];
+};
+
 // New Component for Category Pages
 const CategoryGrid = ({ category, onItemClick }: { category: string, onItemClick: (item: VodItem) => void }) => {
     const [items, setItems] = useState<VodItem[]>([]);
@@ -343,13 +355,25 @@ const CategoryGrid = ({ category, onItemClick }: { category: string, onItemClick
     // Filter States
     const config = FILTER_CONFIG[category];
     const [filter1, setFilter1] = useState(config?.row1.options[0] || '全部');
-    const [filter2, setFilter2] = useState(config?.row2.options[0] || '全部');
+    
+    // Auto-set Weekday for Anime category
+    const [filter2, setFilter2] = useState(() => {
+        if (category === 'anime' && config?.row2.label === '星期') {
+            return getCurrentWeekday();
+        }
+        return config?.row2.options[0] || '全部';
+    });
 
     // Reset filters when category changes
     useEffect(() => {
         if (config) {
             setFilter1(config.row1.options[0]);
-            setFilter2(config.row2.options[0]);
+            
+            if (category === 'anime' && config.row2.label === '星期') {
+                setFilter2(getCurrentWeekday());
+            } else {
+                setFilter2(config.row2.options[0]);
+            }
         }
     }, [category]);
 
@@ -469,43 +493,97 @@ const App: React.FC = () => {
           setLoading(true);
           try {
               const doubanDetail = await fetchDoubanData(item.vod_name, item.vod_id);
-              const searchRes = await searchMovies(item.vod_name);
               
-              if (searchRes.list && searchRes.list.length > 0) {
-                  let list = searchRes.list as VodItem[];
-                  let candidates = list.filter(c => c.vod_name.includes(item.vod_name) || item.vod_name.includes(c.vod_name));
-                  if (candidates.length === 0) candidates = list;
-                  let bestMatch = candidates[0];
+              // Smart Search Strategy:
+              // 1. Original Name
+              // 2. Name without spaces (e.g. "绝命毒师 第五季" -> "绝命毒师第五季")
+              // 3. Name stripped of season info to find broad matches (e.g. "绝命毒师")
+              const searchQueries = new Set<string>();
+              searchQueries.add(item.vod_name);
+              searchQueries.add(item.vod_name.replace(/\s+/g, ''));
+              
+              // Remove "第N季", "Season N", etc. for broad search fallback
+              const cleanName = item.vod_name.split(/第|Season/)[0].trim();
+              if (cleanName && cleanName.length > 1 && cleanName !== item.vod_name) {
+                  searchQueries.add(cleanName);
+              }
 
-                  if (doubanDetail && candidates.length > 1) {
-                      const detailedCandidates = await Promise.all(candidates.slice(0, 5).map(c => getMovieDetail(c.vod_id as number)));
-                      let maxScore = -1;
-                      for (const cand of detailedCandidates) {
-                          if (!cand) continue;
-                          let score = 0;
-                          if (cand.vod_name === item.vod_name) score += 10;
-                          if (doubanDetail.year && cand.vod_year && Math.abs(parseInt(doubanDetail.year) - parseInt(cand.vod_year)) <= 1) score += 5;
-                          if (score > maxScore) { maxScore = score; bestMatch = cand; }
+              let bestMatch: VodItem | null = null;
+              let list: VodItem[] = [];
+
+              // Execute searches sequentially until we find something
+              for (const query of Array.from(searchQueries)) {
+                  const searchRes = await searchMovies(query);
+                  if (searchRes.list && searchRes.list.length > 0) {
+                      list = searchRes.list as VodItem[];
+                      break;
+                  }
+              }
+              
+              if (list.length > 0) {
+                  const targetNameNorm = normalizeTitle(item.vod_name);
+                  
+                  // Scoring system to find the best match in the list
+                  let maxScore = -1;
+                  
+                  for (const cand of list) {
+                      let score = 0;
+                      const candNameNorm = normalizeTitle(cand.vod_name);
+
+                      // Exact normalized match (ignoring spaces/punctuation)
+                      if (candNameNorm === targetNameNorm) score += 100;
+                      // Substring match
+                      else if (candNameNorm.includes(targetNameNorm) || targetNameNorm.includes(candNameNorm)) score += 50;
+
+                      // Year match (Douban year vs CMS year)
+                      if (doubanDetail?.year && cand.vod_year) {
+                          const y1 = parseInt(doubanDetail.year);
+                          const y2 = parseInt(cand.vod_year);
+                          if (!isNaN(y1) && !isNaN(y2) && Math.abs(y1 - y2) <= 1) {
+                              score += 20;
+                          }
+                      }
+                      
+                      // Prefer items with "Season" info if original had it
+                      if (item.vod_name.match(/第.+季|Season/)) {
+                           // If candidate also has number/season info that matches
+                           // Simple heuristic: If original ends in "5", candidate should contain "5"
+                           const seasonNum = item.vod_name.match(/(\d+|[一二三四五六七八九十]+)/g)?.pop();
+                           if (seasonNum && cand.vod_name.includes(seasonNum)) {
+                               score += 10;
+                           }
+                      }
+
+                      if (score > maxScore) {
+                          maxScore = score;
+                          bestMatch = cand;
                       }
                   }
-                  
-                  await handleSelectMovie(bestMatch.vod_id as number);
-                  
-                  setCurrentMovie(prev => {
-                      if (prev) {
-                          return {
-                              ...prev,
-                              vod_pic: doubanDetail?.pic || item.vod_pic || prev.vod_pic,
-                              vod_score: doubanDetail?.score || item.vod_score || prev.vod_score,
-                              vod_year: doubanDetail?.year || item.vod_year || prev.vod_year,
-                              vod_director: doubanDetail?.director || prev.vod_director,
-                              vod_actor: doubanDetail?.actor || prev.vod_actor,
-                          };
-                      }
-                      return prev;
-                  });
+
+                  if (bestMatch) {
+                      await handleSelectMovie(bestMatch.vod_id as number);
+                      
+                      // Merge Douban metadata into the CMS item for display
+                      setCurrentMovie(prev => {
+                          if (prev) {
+                              return {
+                                  ...prev,
+                                  vod_pic: doubanDetail?.pic || item.vod_pic || prev.vod_pic,
+                                  vod_score: doubanDetail?.score || item.vod_score || prev.vod_score,
+                                  vod_year: doubanDetail?.year || item.vod_year || prev.vod_year,
+                                  vod_director: doubanDetail?.director || prev.vod_director,
+                                  vod_actor: doubanDetail?.actor || prev.vod_actor,
+                              };
+                          }
+                          return prev;
+                      });
+                  } else {
+                      // Fallback: If we found a list but no good match, just show search results
+                      triggerSearch(item.vod_name);
+                  }
 
               } else {
+                  // No results found in CMS for any variation
                   triggerSearch(item.vod_name);
               }
           } catch (e) {

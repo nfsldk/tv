@@ -163,23 +163,33 @@ export const fetchCategoryItems = async (
         case 'anime':
             type = 'tv';
             tag = '日本动画';
-            if (filter1 === '剧场版') tag = '剧场版';
-            else if (filter1 === '番剧') tag = '日本动画';
+            // "Theatrical" versions are considered 'movie' type in Douban
+            if (filter1 === '剧场版') {
+                type = 'movie';
+                tag = '日本动画'; 
+                sort = 'recommend';
+            } 
+            else if (filter1 === '番剧') {
+                tag = '日本动画';
+            }
             
             // Weekday filter handling:
-            // Since Douban doesn't have explicit "Monday" tags in public API, 
-            // we map specific days to '日本动画' sorted by time to show latest updates.
             if (['周一', '周二', '周三', '周四', '周五', '周六', '周日'].includes(filter2)) {
                  tag = '日本动画';
-                 sort = 'time';
+                 sort = 'time'; // Show latest for daily updates
             }
             break;
 
         case 'variety':
             type = 'tv';
             tag = '综艺';
-            if (filter2 === '国内') tag = '大陆综艺';
-            else if (filter2 === '国外') tag = '欧美综艺'; // '国外' is ambiguous, map to '欧美综艺' as fallback
+            // Specific mapping for Variety regions
+            if (filter2 === '国内' || filter2 === '大陆') tag = '大陆综艺';
+            else if (filter2 === '欧美') tag = '欧美综艺';
+            else if (filter2 === '日本') tag = '日本综艺';
+            else if (filter2 === '韩国') tag = '韩国综艺';
+            else if (filter2 === '港台') tag = '港台综艺';
+            else if (filter2 !== '全部') tag = filter2;
             break;
             
         default:
