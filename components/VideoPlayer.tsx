@@ -16,11 +16,10 @@ interface VideoPlayerProps {
 const ICONS = {
     skipStart: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff" width="22" height="22"><path d="M5 4h2v16H5V4zm4 1v14l11-7L9 5z"/></svg>',
     skipEnd: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff" width="22" height="22"><path d="M5 5l11 7-11 7V5zm12-1h2v16h-2V4z"/></svg>',
-    // Specific icons for Cast
     airPlay: '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6 22h12l-6-6zM21 3H3c-1.1 0-2 .9-2 2v12h2V5h18v12h2V5c0-1.1-.9-2-2-2z"/></svg>',
     chromecast: '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.92-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>',
-    // Danmaku Icon for Settings Menu
-    danmaku: '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M21 6h-2v9H6v2c0 .55.45 1 1 1h11l4 4V7c0-.55-.45-1-1-1zm-4 6V3c0-.55-.45-1-1-1H3c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1z"/></svg>'
+    danmaku: '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>',
+    next: '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>'
 };
 
 const SKIP_OPTIONS = [
@@ -45,9 +44,6 @@ const AD_PATTERNS = [
     'wangzhuan', 'gif', '.mp4'
 ];
 
-/**
- * Filter Ads from M3U8 Content
- */
 function filterAdsFromM3U8(m3u8Content: string): string {
     if (!m3u8Content) return '';
     const lines = m3u8Content.split('\n');
@@ -83,131 +79,173 @@ function filterAdsFromM3U8(m3u8Content: string): string {
 }
 
 // ================= API Configuration =================
-const DANMAKU_API_BASE = 'https://dm1.laidd.de5.net/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';
-const SEARCH_API = `${DANMAKU_API_BASE}/api/v2/search/anime?keyword=`;
-const MATCH_API = `${DANMAKU_API_BASE}/api/v2/match`;
-const COMMENT_API = `${DANMAKU_API_BASE}/api/v2/comment/`;
+const DANMAKU_API_BASE = 'https://dm1.laidd.de5.net/5573108';
+const API_SEARCH_EPISODES = `${DANMAKU_API_BASE}/api/v2/search/episodes`;
+const API_COMMENT = `${DANMAKU_API_BASE}/api/v2/comment`;
 
-// Proxy Wrapper to bypass CORS
-const proxyFetch = async (url: string, options: RequestInit = {}) => {
-    // Add timestamp to prevent caching
-    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}&_t=${Date.now()}`;
-    const res = await fetch(proxyUrl, options);
-    return res;
+// Robust Fetch with Multiple Proxies
+const robustFetch = async (url: string, options: RequestInit = {}) => {
+    const strategies = [
+        // 1. Direct fetch
+        async () => {
+            const res = await fetch(url, { ...options, cache: 'no-store', referrerPolicy: 'no-referrer' });
+            if (!res.ok) throw new Error(`Direct fetch failed: ${res.status}`);
+            return res;
+        },
+        // 2. CorsProxy
+        async () => {
+            const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+            const res = await fetch(proxyUrl, options);
+            if (!res.ok) throw new Error(`CorsProxy failed: ${res.status}`);
+            return res;
+        },
+        // 3. AllOrigins
+        async () => {
+            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+            const res = await fetch(proxyUrl);
+            if (!res.ok) throw new Error(`AllOrigins failed: ${res.status}`);
+            const data = await res.json();
+            return {
+                ok: true,
+                json: async () => JSON.parse(data.contents)
+            };
+        }
+    ];
+
+    for (const strategy of strategies) {
+        try {
+            return await strategy();
+        } catch (e) {
+            // Continue to next strategy
+        }
+    }
+    throw new Error('All fetch strategies failed');
 };
 
-const fetchDanmaku = async (title: string, episodeIndex: number) => {
+const transformDanmaku = (comments: any[]) => {
+    if (!Array.isArray(comments)) return [];
+    console.log(`[Danmaku] Transforming ${comments.length} comments.`);
+    return comments.map((item: any) => {
+        // DandanPlay format p="time,mode,color,cid"
+        const p = (item.p || '').split(',');
+        const time = parseFloat(p[0]) || 0;
+        const modeId = parseInt(p[1]) || 1;
+        const colorInt = parseInt(p[2]) || 16777215;
+        
+        let mode = 0; // 0: Scroll (Artplayer default)
+        if (modeId === 4) mode = 2; // Bottom
+        else if (modeId === 5) mode = 1; // Top
+        
+        const colorHex = (colorInt & 0xFFFFFF).toString(16).padStart(6, '0');
+        
+        return {
+            text: item.m || '',
+            time: time,
+            mode: mode, 
+            color: '#' + colorHex,
+            border: true,
+        };
+    }).filter(item => item.text);
+};
+
+const fetchDanmaku = async (title: string, episodeIndex: number, videoUrl: string) => {
     if (!title) return [];
     
-    console.log(`[Danmaku] Start fetching for: ${title} (Index: ${episodeIndex})`);
+    // 1. Clean Title for Searching
+    const cleanTitle = title
+        .replace(/第\s*\d+\s*季|Season\s*\d+|S\d+/gi, '') // Remove Season info
+        .replace(/\(\d{4}\)/g, '') // Remove Year
+        .replace(/电视剧|动漫|综艺|movie|tv/gi, '')
+        .trim();
+    
+    const episodeNum = episodeIndex + 1;
+    // Extract Season Number for matching
+    const seasonMatch = title.match(/第\s*(\d+)\s*季|Season\s*(\d+)|S(\d+)/i);
+    const seasonNum = seasonMatch ? parseInt(seasonMatch[1] || seasonMatch[2] || seasonMatch[3]) : 1;
+
+    console.log(`[Danmaku] Target: "${cleanTitle}" S${seasonNum}E${episodeNum}`);
+
     let episodeId: number | null = null;
-    const currentEpisodeNum = episodeIndex + 1;
 
     try {
-        // --- Strategy 1: Intelligent Match (POST /api/v2/match) ---
-        const epStr = currentEpisodeNum < 10 ? `0${currentEpisodeNum}` : `${currentEpisodeNum}`;
-        const simulatedFileName = `${title}.S01E${epStr}.mp4`;
+        // Strategy: Search Episodes API Only (Priority)
+        console.log(`[Danmaku] Searching Episodes: ${cleanTitle}`);
+        const searchUrl = `${API_SEARCH_EPISODES}?anime=${encodeURIComponent(cleanTitle)}`;
+        const res = await robustFetch(searchUrl);
+        const data = await res.json();
         
-        console.log(`[Danmaku] Attempting Match with: ${simulatedFileName}`);
+        if (data.animes && Array.isArray(data.animes)) {
+            let bestScore = -1;
+            let bestMatchId = null;
 
-        const matchRes = await proxyFetch(MATCH_API, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fileName: simulatedFileName })
-        });
-        
-        if (matchRes.ok) {
-            const matchData = await matchRes.json();
-            if (matchData.isMatched && matchData.matches && matchData.matches.length > 0) {
-                episodeId = matchData.matches[0].episodeId;
-                console.log(`[Danmaku] Matched ID via Match API: ${episodeId}`);
-            }
-        }
-    } catch (e) {
-        console.warn('[Danmaku] Match API failed, falling back to Search...', e);
-    }
-
-    // --- Strategy 2: Fallback Search (GET /api/v2/search/anime) ---
-    if (!episodeId) {
-        try {
-            console.log(`[Danmaku] Fallback to Search API: ${title}`);
-            // Try original title first
-            let searchUrl = `${SEARCH_API}${encodeURIComponent(title)}`;
-            let searchRes = await proxyFetch(searchUrl);
-            let searchData = await searchRes.json();
-
-            // If no results, try cleaning the title (remove spaces/punctuation)
-            if (!searchData.animes || searchData.animes.length === 0) {
-                const cleanTitle = title.replace(/\s+/g, '').replace(/[：:,.，。!！?？]/g, '');
-                if (cleanTitle !== title) {
-                     console.log(`[Danmaku] Retrying search with clean title: ${cleanTitle}`);
-                     searchUrl = `${SEARCH_API}${encodeURIComponent(cleanTitle)}`;
-                     searchRes = await proxyFetch(searchUrl);
-                     searchData = await searchRes.json();
-                }
-            }
-            
-            if (searchData.animes && searchData.animes.length > 0) {
-                // Use the first result as the best guess
-                const anime = searchData.animes[0]; 
+            // Iterate ALL animes to find the best match
+            for (const anime of data.animes) {
+                if (!anime.episodes || anime.episodes.length === 0) continue;
                 
-                // Try to find episode by index
-                // Note: Dandanplay episodes array is usually sorted.
-                // We check if the episode index exists in the list
-                if (anime.episodes && anime.episodes.length > episodeIndex) {
-                    episodeId = anime.episodes[episodeIndex].episodeId;
-                    console.log(`[Danmaku] Matched ID via Search API (Index Match): ${episodeId}`);
-                } else if (anime.episodes && anime.episodes.length > 0) {
-                    // Fallback: If index is out of bounds, maybe it's a movie or just one file?
-                    // Just take the first one if we are playing the first episode
-                    if (episodeIndex === 0) {
-                         episodeId = anime.episodes[0].episodeId;
-                         console.log(`[Danmaku] Matched ID via Search API (First Ep Fallback): ${episodeId}`);
+                // Flexible Regex to match episode numbers from titles like "【qiyi】 第1集", "EP01", "01"
+                // Matches: "第1集", "EP1", "E1", "Vol.1", " 1 ", "[01]"
+                const regex = /(?:第|EP|E|Vol\.?|Episode)\s*0*(\d+)/i;
+                const regexSimple = /(?:^|\s|\[)0*(\d+)(?:$|\s|\])/;
+
+                const targetEp = anime.episodes.find((ep: any) => {
+                    const t = ep.episodeTitle || '';
+                    let match = t.match(regex);
+                    if (!match) match = t.match(regexSimple);
+                    
+                    if (match && parseInt(match[1], 10) === episodeNum) return true;
+                    return false;
+                });
+
+                if (targetEp) {
+                    let score = 0;
+                    const animeTitle = anime.animeTitle || '';
+                    
+                    if (animeTitle === title || animeTitle === cleanTitle) score += 100;
+                    else if (animeTitle.includes(cleanTitle)) score += 50;
+
+                    const animeSeason = animeTitle.match(/第\s*(\d+)\s*季|Season\s*(\d+)|S(\d+)/i);
+                    const animeSeasonNum = animeSeason ? parseInt(animeSeason[1]||animeSeason[2]||animeSeason[3]) : 1;
+                    if (animeSeasonNum === seasonNum) score += 30;
+
+                    if (anime.type === '电视剧' || anime.type === 'TV') score += 10;
+
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMatchId = targetEp.episodeId;
                     }
                 }
             }
-        } catch (e) {
-            console.warn('[Danmaku] Search API failed', e);
+
+            if (bestMatchId) {
+                episodeId = bestMatchId;
+                console.log(`[Danmaku] Match Found ID: ${episodeId}`);
+            } else if (data.animes.length > 0) {
+                 // Fallback: If regex fails, try index
+                 const relevantAnimes = data.animes.filter((a: any) => a.animeTitle.includes(cleanTitle));
+                 const fallbackAnime = relevantAnimes.length > 0 ? relevantAnimes[0] : data.animes[0];
+
+                 if (fallbackAnime.episodes && fallbackAnime.episodes.length > episodeIndex) {
+                     episodeId = fallbackAnime.episodes[episodeIndex].episodeId;
+                     console.log(`[Danmaku] Fallback Index ID: ${episodeId}`);
+                 }
+            }
         }
-    }
 
-    if (!episodeId) {
-        console.log('[Danmaku] No episode ID found. No comments.');
-        return [];
-    }
-
-    // --- Strategy 3: Fetch Comments (GET /api/v2/comment/:id) ---
-    try {
-        const commentUrl = `${COMMENT_API}${episodeId}?withRelated=true&chConvert=1`;
-        const commentRes = await proxyFetch(commentUrl);
-        const commentData = await commentRes.json();
-        
-        if (!commentData.comments) return [];
-
-        console.log(`[Danmaku] Loaded ${commentData.comments.length} comments.`);
-
-        return commentData.comments.map((item: any) => {
-            const p = item.p.split(',');
-            // Dandanplay Mode: 1=scroll(R2L), 4=bottom, 5=top
-            // Artplayer Mode: 0=scroll, 1=top, 2=bottom
-            let mode = 0;
-            const dpMode = parseInt(p[1]);
-            if (dpMode === 4) mode = 2;
-            else if (dpMode === 5) mode = 1;
-
-            return {
-                text: item.m,
-                time: parseFloat(p[0]),
-                mode: mode, 
-                color: '#' + (parseInt(p[2]).toString(16).padStart(6, '0')),
-                border: false,
-            };
-        });
+        // Fetch Comments
+        if (episodeId) {
+            const commentUrl = `${API_COMMENT}/${episodeId}?withRelated=true&chConvert=1&format=json`;
+            const res = await robustFetch(commentUrl);
+            const data = await res.json();
+            if (data.comments) {
+                return transformDanmaku(data.comments);
+            }
+        }
 
     } catch (e) {
-        console.warn('[Danmaku] Comment Fetch Failed:', e);
-        return [];
+        console.error('[Danmaku] Error:', e);
     }
+    
+    return [];
 };
 
 const formatTime = (seconds: number) => {
@@ -265,15 +303,10 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
 
       let skipHead = parseInt(localStorage.getItem('art_skip_head') || String(DEFAULT_SKIP_HEAD));
       let skipTail = parseInt(localStorage.getItem('art_skip_tail') || String(DEFAULT_SKIP_TAIL));
-      let danmakuEnabled = true; // Default ON
 
-      let p2pStats = { total: 0, p2p: 0, http: 0, peers: 0 };
-      let lastLoadedBytes = 0;
-      let lastTime = Date.now();
-      let downloadSpeed = 0;
-
+      let danmakuEnabled = true;
       const isApple = /Mac|iPod|iPhone|iPad/.test(navigator.platform) || /Macintosh/.test(navigator.userAgent);
-      
+
       const art = new Artplayer({
           container: containerRef.current,
           url: url,
@@ -290,7 +323,7 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
           fullscreenWeb: true,
           
           flip: false,
-          playbackRate: false,
+          playbackRate: true,
           aspectRatio: false,
 
           airplay: true,
@@ -303,12 +336,10 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
               crossOrigin: 'anonymous',
               playsInline: true,
               'webkit-playsinline': true,
-              'x5-video-player-type': 'h5',
-              'x5-video-player-fullscreen': 'false',
           },
           plugins: [
               artplayerPluginDanmuku && artplayerPluginDanmuku({
-                  danmuku: () => fetchDanmaku(title || '', episodeIndex),
+                  danmuku: () => fetchDanmaku(title || '', episodeIndex, url),
                   speed: 5,
                   opacity: 1,
                   fontSize: 25,
@@ -318,47 +349,102 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                   antiOverlap: true,
                   synchronousPlayback: false,
                   visible: danmakuEnabled, 
-                  emitter: false, 
+                  emitter: false,
               }),
           ].filter(Boolean),
           controls: [
              {
                 name: 'next-episode',
                 position: 'left',
-                index: 11, 
-                html: '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M5.536 21.886a1.004 1.004 0 0 0 1.033-.064l13-9a1 1 0 0 0 0-1.644l-13-9A1 1 0 0 0 5 3v18a1 1 0 0 0 .536.886z"/><path d="M19 3a1 1 0 0 0-1 1v16a1 1 0 0 0 2 0V4a1 1 0 0 0-1-1z"/></svg>',
+                index: 15,
+                html: ICONS.next,
                 tooltip: '下一集',
-                style: { cursor: 'pointer', display: 'flex', alignItems: 'center', marginLeft: '10px' },
-                click: function () { if (latestOnNext.current) latestOnNext.current(); },
+                style: { cursor: 'pointer', display: 'flex', alignItems: 'center', marginLeft: '2px' },
+                click: function (item: any) { if (latestOnNext.current) latestOnNext.current(); },
              }
           ],
           settings: [
               {
                   html: '弹幕状态',
-                  width: 250,
                   icon: ICONS.danmaku,
                   tooltip: danmakuEnabled ? '开启' : '关闭',
+                  switch: danmakuEnabled,
+                  onSwitch: function (item: any) {
+                      const nextState = !item.switch;
+                      item.tooltip = nextState ? '开启' : '关闭';
+                      const plugin = this.plugins.artplayerPluginDanmuku;
+                      if (plugin) {
+                          if (nextState) {
+                              plugin.show();
+                              this.notice.show = '弹幕已开启';
+                          } else {
+                              plugin.hide();
+                              this.notice.show = '弹幕已关闭';
+                          }
+                      }
+                      // Double assurance
+                      if (this.template.$danmuku) {
+                          this.template.$danmuku.style.display = nextState ? 'block' : 'none';
+                      }
+                      return nextState;
+                  },
+              },
+              {
+                  html: '弹幕透明度',
+                  width: 250,
+                  icon: ICONS.danmaku,
+                  tooltip: '100%',
                   selector: [
-                      { html: '开启', default: danmakuEnabled },
-                      { html: '关闭', default: !danmakuEnabled }
+                      { html: '100%', value: 1, default: true },
+                      { html: '75%', value: 0.75 },
+                      { html: '50%', value: 0.5 },
+                      { html: '25%', value: 0.25 },
                   ],
-                  onSelect: function(item: any) {
-                      const plugin = art.plugins.artplayerPluginDanmuku;
-                      if (!plugin) return item.html;
-                      
-                      if (item.html === '开启') {
-                          plugin.show();
-                          plugin.isHide = false;
-                          danmakuEnabled = true;
-                          art.notice.show = '弹幕已开启';
-                      } else {
-                          plugin.hide();
-                          plugin.isHide = true;
-                          danmakuEnabled = false;
-                          art.notice.show = '弹幕已关闭';
+                  onSelect: function (item: any) {
+                      if (this.template.$danmuku) {
+                          this.template.$danmuku.style.opacity = item.value;
                       }
                       return item.html;
-                  }
+                  },
+              },
+              {
+                  html: '弹幕速度',
+                  width: 250,
+                  icon: ICONS.danmaku,
+                  tooltip: '正常',
+                  selector: [
+                      { html: '缓慢', value: 10 },
+                      { html: '正常', value: 5, default: true },
+                      { html: '快速', value: 3 },
+                  ],
+                  onSelect: function (item: any) {
+                      const plugin = this.plugins.artplayerPluginDanmuku;
+                      if (plugin && plugin.config) {
+                          plugin.config.speed = item.value;
+                      }
+                      return item.html;
+                  },
+              },
+              {
+                  html: '弹幕字号',
+                  width: 250,
+                  icon: ICONS.danmaku,
+                  tooltip: '正常',
+                  selector: [
+                      { html: '大', value: 30 },
+                      { html: '正常', value: 25, default: true },
+                      { html: '小', value: 20 },
+                  ],
+                  onSelect: function (item: any) {
+                      const plugin = this.plugins.artplayerPluginDanmuku;
+                      if (plugin && plugin.config) {
+                          plugin.config.fontSize = item.value;
+                      }
+                      if (this.template.$danmuku) {
+                           this.template.$danmuku.style.fontSize = item.value + 'px';
+                      }
+                      return item.html;
+                  },
               },
               {
                   html: '跳过片头',
@@ -400,20 +486,13 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
 
                   if (Hls.isSupported()) {
                       class CustomLoader extends Hls.DefaultConfig.loader {
-                          constructor(config: any) {
-                              super(config);
-                          }
-
+                          constructor(config: any) { super(config); }
                           load(context: any, config: any, callbacks: any) {
                               if (context.type === 'manifest' || context.type === 'level') {
                                   const onSuccess = callbacks.onSuccess;
                                   callbacks.onSuccess = function (response: any, stats: any, ctx: any) {
                                       if (response.data && typeof response.data === 'string') {
-                                          try { 
-                                              response.data = filterAdsFromM3U8(response.data); 
-                                          } catch (e) {
-                                              console.warn("Ad filtering failed", e);
-                                          }
+                                          try { response.data = filterAdsFromM3U8(response.data); } catch (e) {}
                                       }
                                       return onSuccess(response, stats, ctx, null);
                                   };
@@ -437,17 +516,10 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                             new P2PEngine(hls, {
                                 maxBufSize: 120 * 1000 * 1000,
                                 p2pEnabled: true,
-                                logLevel: 'warn',
                             }).on('stats', (stats: any) => {
-                                p2pStats.total = stats.totalHTTPDownloaded + stats.totalP2PDownloaded;
-                                p2pStats.p2p = stats.totalP2PDownloaded;
-                                p2pStats.http = stats.totalHTTPDownloaded;
-                                updateP2PDisplay();
-                            }).on('peers', (peers: any[]) => {
-                                p2pStats.peers = peers.length;
-                                updateP2PDisplay();
+                                // stats collection
                             });
-                          } catch (e) { console.warn("P2P Init Error", e); }
+                          } catch (e) {}
                       }
 
                       hls.loadSource(url);
@@ -462,16 +534,15 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
               }
           },
       });
-
-      // Add Cast Control dynamically (Optimized with State Feedback)
+      
       art.controls.add({
         name: 'cast',
         position: 'right',
-        index: 20,
+        index: 40,
         html: isApple ? ICONS.airPlay : ICONS.chromecast,
         tooltip: isApple ? 'AirPlay' : '投屏',
-        style: { cursor: 'pointer', display: 'flex', alignItems: 'center', marginRight: '10px' },
-        click: function (item: any, event: Event) {
+        style: { cursor: 'pointer', marginRight: '4px' },
+        click: function (item: any) {
            const video = art.video as any;
            if (isApple && video.webkitShowPlaybackTargetPicker) {
                video.webkitShowPlaybackTargetPicker();
@@ -483,38 +554,19 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
             const video = art.video as any;
             if (isApple && video.webkitPlaybackTargetAvailability !== undefined) {
                 const onAvailabilityChange = (event: any) => {
-                    if (event.availability === 'available') {
-                        $el.style.display = 'flex';
-                    } else {
-                        $el.style.display = 'none'; 
-                    }
+                    $el.style.display = event.availability === 'available' ? 'flex' : 'none';
                 };
                 video.addEventListener('webkitplaybacktargetavailabilitychanged', onAvailabilityChange);
-
                 const onTargetChange = () => {
                      const isConnected = video.webkitCurrentPlaybackTargetIsWireless;
-                     if (isConnected) {
-                         $el.style.color = '#34d399'; 
-                         $el.setAttribute('data-tooltip', 'AirPlay 已连接'); 
-                         art.notice.show = 'AirPlay 投屏已连接';
-                     } else {
-                         $el.style.color = ''; 
-                         $el.setAttribute('data-tooltip', 'AirPlay');
-                         if (art.notice.show === 'AirPlay 投屏已连接') {
-                             art.notice.show = 'AirPlay 投屏已断开';
-                         }
-                     }
+                     $el.style.color = isConnected ? '#34d399' : '';
+                     art.notice.show = isConnected ? 'AirPlay 投屏已连接' : '';
                 };
                 video.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', onTargetChange);
-                if (video.webkitCurrentPlaybackTargetIsWireless) onTargetChange();
-
-            } else if (!isApple) {
-                $el.style.display = 'flex';
             }
         }
       });
 
-      // Memory Playback Logic: Restore progress on ready
       art.on('ready', () => {
           const progressKey = `cine_progress_${url}`;
           const savedTimeStr = localStorage.getItem(progressKey);
@@ -522,74 +574,23 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
               const savedTime = parseFloat(savedTimeStr);
               if (!isNaN(savedTime) && savedTime > 5 && savedTime < art.duration - 5) {
                   art.seek = savedTime;
-                  art.notice.show = `已为您恢复至 ${formatTime(savedTime)}`;
+                  art.notice.show = `已恢复至 ${formatTime(savedTime)}`;
               }
           }
       });
 
       artRef.current = art;
 
-      const p2pEl = document.createElement('div');
-      p2pEl.className = 'p2p-stats';
-      p2pEl.style.display = 'none';
-      p2pEl.innerHTML = `
-        <div class="p2p-header"><span class="p2p-status-dot"></span> <span id="p2p-status-text">Connecting...</span></div>
-        <div class="p2p-row"><span>Peers</span><strong id="p2p-peers">0</strong></div>
-        <div class="p2p-row"><span>Speed</span><strong id="p2p-speed">0 KB/s</strong></div>
-        <div class="p2p-row"><span>Ratio</span><strong id="p2p-ratio">0%</strong></div>
-        <div class="p2p-bar-container"><div id="p2p-bar-fill" class="p2p-bar-fill"></div></div>
-      `;
-      if (art.template.$player) {
-          art.template.$player.appendChild(p2pEl);
-      }
-
-      function updateP2PDisplay() {
-          if (p2pStats.total > 0) {
-              p2pEl.style.display = 'flex';
-              const percent = p2pStats.total > 0 ? Math.round((p2pStats.p2p / p2pStats.total) * 100) : 0;
-              const peersEl = document.getElementById('p2p-peers');
-              const ratioEl = document.getElementById('p2p-ratio');
-              const barFill = document.getElementById('p2p-bar-fill');
-              if(peersEl) peersEl.innerText = String(p2pStats.peers);
-              if(ratioEl) ratioEl.innerText = `${percent}%`;
-              if(barFill) barFill.style.width = `${percent}%`;
-          }
-      }
-
-      function formatSpeed(bytesPerSec: number) {
-        if (bytesPerSec < 1024) return bytesPerSec.toFixed(0) + ' B/s';
-        if (bytesPerSec < 1024 * 1024) return (bytesPerSec / 1024).toFixed(0) + ' KB/s';
-        return (bytesPerSec / 1024 / 1024).toFixed(1) + ' MB/s';
-      }
-
-      const speedInterval = setInterval(() => {
-        if(p2pStats.total > 0) {
-            const now = Date.now();
-            const duration = (now - lastTime) / 1000;
-            if(duration >= 1) {
-                const diff = p2pStats.total - lastLoadedBytes;
-                downloadSpeed = diff / duration;
-                lastLoadedBytes = p2pStats.total;
-                lastTime = now;
-                const speedEl = document.getElementById('p2p-speed');
-                if(speedEl) speedEl.innerText = formatSpeed(downloadSpeed);
-            }
-        }
-      }, 1000);
-      
-      art.on('destroy', () => clearInterval(speedInterval));
-
       art.on('video:timeupdate', function() {
           if (art.currentTime > 0) {
               localStorage.setItem(`cine_progress_${url}`, String(art.currentTime));
           }
-
           const currentSkipHead = parseInt(localStorage.getItem('art_skip_head') || String(DEFAULT_SKIP_HEAD));
           const currentSkipTail = parseInt(localStorage.getItem('art_skip_tail') || String(DEFAULT_SKIP_TAIL));
           
           if (currentSkipHead > 0 && !hasSkippedHead && art.duration > 300) {
              if (art.currentTime < currentSkipHead) {
-                art.notice.show = `已自动去除片头/广告 (${currentSkipHead}秒)`;
+                art.notice.show = `已跳过片头`;
                 art.seek = currentSkipHead;
                 art.play();
              }
@@ -601,12 +602,8 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
               if (rem > 0 && rem <= currentSkipTail) {
                   isSkippingTail = true;
                   if (autoNext && latestOnNext.current) {
-                      art.notice.show = '正在为您播放下一集...';
-                      setTimeout(() => { if (latestOnNext.current) latestOnNext.current(); }, 500); 
-                  } else {
-                      art.notice.show = '已跳过片尾';
-                      art.seek = art.duration; 
-                      art.pause();
+                      art.notice.show = '即将播放下一集';
+                      setTimeout(() => { if (latestOnNext.current) latestOnNext.current(); }, 1000); 
                   }
               }
           }
@@ -616,9 +613,7 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
       art.on('restart', () => { isSkippingTail = false; hasSkippedHead = false; });
       art.on('video:ended', () => {
          localStorage.removeItem(`cine_progress_${url}`);
-         if (autoNext && latestOnNext.current) {
-             latestOnNext.current();
-         }
+         if (autoNext && latestOnNext.current) latestOnNext.current();
       });
 
       return () => {
@@ -631,79 +626,13 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
 
   return (
       <div className="w-full aspect-video lg:aspect-auto lg:h-[500px] bg-black lg:rounded-xl overflow-hidden shadow-2xl border border-glass-border ring-1 ring-white/10 group relative z-0">
-           <style>{`
-            .p2p-stats {
-                position: absolute;
-                top: 20px;
-                right: 20px;
-                display: flex;
-                flex-direction: column;
-                gap: 3px;
-                padding: 8px 10px;
-                border-radius: 8px;
-                background: rgba(10, 10, 10, 0.6);
-                backdrop-filter: blur(8px);
-                -webkit-backdrop-filter: blur(8px);
-                border: 1px solid rgba(255,255,255,0.05);
-                pointer-events: none;
-                z-index: 20;
-                transition: opacity 0.3s;
-                min-width: 100px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          <style>{`
+            .art-danmuku-control, .art-control-danmuku { display: none !important; }
+            @media (max-width: 768px) {
+                .art-controls .art-control { padding: 0 4px !important; }
+                .art-control-volume { display: none !important; }
             }
-            .p2p-header {
-                display: flex;
-                align-items: center;
-                font-size: 10px;
-                color: #23ade5;
-                font-weight: 700;
-                margin-bottom: 2px;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            }
-            .p2p-status-dot {
-                width: 5px;
-                height: 5px;
-                background-color: #23ade5;
-                border-radius: 50%;
-                margin-right: 5px;
-                box-shadow: 0 0 5px rgba(35, 173, 229, 0.8);
-            }
-            .p2p-row {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                font-size: 10px;
-                color: rgba(255, 255, 255, 0.7);
-                font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-                line-height: 1.4;
-            }
-            .p2p-row strong { color: #fff; font-weight: 500; }
-            .p2p-bar-container {
-                width: 100%;
-                height: 2px;
-                background: rgba(255,255,255,0.1);
-                border-radius: 2px;
-                margin-top: 4px;
-                overflow: hidden;
-            }
-            .p2p-bar-fill {
-                height: 100%;
-                background: linear-gradient(90deg, #23ade5, #00ff88);
-                width: 0%;
-                transition: width 0.5s ease;
-            }
-            
-            /* Hide Danmaku controls forcefully */
-            .art-danmuku-control,
-            .art-control-danmuku {
-                display: none !important;
-            }
-            
-            @media (max-width: 500px) {
-                .p2p-stats { top: 10px; right: 10px; padding: 6px 8px; min-width: 85px; }
-            }
-           `}</style>
+          `}</style>
           <div ref={containerRef} className="w-full h-full" />
       </div>
   );
