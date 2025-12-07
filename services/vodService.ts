@@ -1,5 +1,3 @@
-
-
 import { Episode, VodDetail, ApiResponse, ActorItem, RecommendationItem, VodItem } from '../types';
 
 const API_BASE = 'https://caiji.dyttzyapi.com/api.php/provide/vod';
@@ -10,10 +8,11 @@ const API_BASE = 'https://caiji.dyttzyapi.com/api.php/provide/vod';
 const fetchWithProxy = async (params: URLSearchParams): Promise<ApiResponse> => {
   const targetUrl = `${API_BASE}?${params.toString()}`;
   
-  // Strategy: Try primary proxy (corsproxy.io), fallback to others
+  // Strategy: Try multiple proxies including ThingProxy and AllOrigins
   const proxies = [
       (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
       (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+      (url: string) => `https://thingproxy.freeboard.io/fetch/${url}`,
       (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
   ];
 
@@ -22,13 +21,18 @@ const fetchWithProxy = async (params: URLSearchParams): Promise<ApiResponse> => 
           const proxyUrl = proxyGen(targetUrl);
           const response = await fetch(proxyUrl);
           if (response.ok) {
-              const data = await response.json();
-              if (data && (data.code === 1 || Array.isArray(data.list))) {
-                  return data;
+              const text = await response.text();
+              try {
+                  const data = JSON.parse(text);
+                  if (data && (data.code === 1 || Array.isArray(data.list))) {
+                      return data;
+                  }
+              } catch (e) {
+                  console.warn(`Proxy response parsing failed: ${proxyUrl}`, e);
               }
           }
       } catch (e) {
-          console.warn(`Proxy failed for CMS: ${proxyGen(targetUrl)}`, e);
+          console.warn(`Proxy failed for CMS: ${proxyGen(targetUrl).split('?')[0]}`, e);
       }
   }
 
@@ -85,6 +89,7 @@ const fetchDoubanJson = async (type: string, tag: string, limit = 12, sort = 're
     const proxies = [
         `https://corsproxy.io/?${encodeURIComponent(doubanUrl)}`,
         `https://api.allorigins.win/raw?url=${encodeURIComponent(doubanUrl)}`,
+        `https://thingproxy.freeboard.io/fetch/${doubanUrl}`,
         `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(doubanUrl)}`
     ];
 
@@ -107,7 +112,7 @@ const fetchDoubanJson = async (type: string, tag: string, limit = 12, sort = 're
                 }
             }
         } catch (e) {
-            console.warn(`Douban fetch proxy failed: ${url}`, e);
+            console.warn(`Douban fetch proxy failed: ${url.split('?')[0]}`, e);
         }
     }
     
@@ -231,6 +236,7 @@ const fetchImdbBackdrop = async (imdbId: string): Promise<string | null> => {
 };
 
 export interface DoubanData {
+    doubanId?: string;
     score?: string;
     pic?: string;
     wallpaper?: string; 
@@ -276,7 +282,7 @@ export const fetchDoubanData = async (keyword: string, doubanId?: string | numbe
     
     if (!html) return null;
     
-    const result: DoubanData = {};
+    const result: DoubanData = { doubanId: String(targetId) };
     
     const scoreMatch = html.match(/property="v:average">([\d\.]+)<\/strong>/);
     if (scoreMatch) result.score = scoreMatch[1];
@@ -486,6 +492,7 @@ export const enrichVodDetail = async (detail: VodDetail): Promise<Partial<VodDet
         const doubanData = await fetchDoubanData(detail.vod_name, potentialId);
         if (doubanData) {
             const updates: Partial<VodDetail> = {};
+            if (doubanData.doubanId) updates.vod_douban_id = doubanData.doubanId;
             if (doubanData.score) {
                 updates.vod_douban_score = doubanData.score;
                 updates.vod_score = doubanData.score;

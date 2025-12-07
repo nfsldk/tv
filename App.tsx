@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { getHomeSections, searchMovies, getMovieDetail, parseEpisodes, enrichVodDetail, fetchDoubanData, fetchCategoryItems } from './services/vodService';
 import VideoPlayer from './components/VideoPlayer';
@@ -595,6 +596,7 @@ const App: React.FC = () => {
                                   vod_year: doubanDetail?.year || item.vod_year || prev.vod_year,
                                   vod_director: doubanDetail?.director || prev.vod_director,
                                   vod_actor: doubanDetail?.actor || prev.vod_actor,
+                                  vod_douban_id: doubanDetail?.doubanId // Store Douban ID if available
                               };
                           }
                           return prev;
@@ -672,7 +674,7 @@ const App: React.FC = () => {
   }, [currentEpisodeIndex, episodes.length]);
 
   return (
-      <div className="relative min-h-screen pb-20 overflow-x-hidden font-sans pt-28 lg:pt-16">
+      <div className="relative min-h-screen pb-20 overflow-x-hidden font-sans pt-24 lg:pt-16">
           <NavBar activeTab={activeTab} onTabChange={handleTabChange} />
 
           {/* Global Loading Overlay */}
@@ -693,10 +695,13 @@ const App: React.FC = () => {
                       </button>
                       
                       <div className="flex flex-col lg:flex-row gap-6 items-start h-auto relative transition-all duration-300">
-                          <div className={`flex-1 w-full bg-black rounded-xl overflow-hidden border border-white/5 shadow-2xl lg:h-[500px] relative group transition-all duration-300`}>
+                          <div className={`flex-1 w-full bg-black rounded-xl overflow-hidden border border-white/5 shadow-2xl lg:h-[500px] relative group transition-all duration-300 z-10`}>
                               <VideoPlayer 
                                   url={currentEpUrl} 
                                   poster={currentMovie.vod_pic}
+                                  title={currentMovie.vod_name}
+                                  episodeIndex={currentEpisodeIndex}
+                                  doubanId={currentMovie.vod_douban_id}
                                   onEnded={handleEpisodeEnd}
                                   onNext={handleNextEpisode}
                               />
@@ -708,8 +713,8 @@ const App: React.FC = () => {
                           </div>
 
                           {showSidePanel && (
-                              <div className="w-full lg:w-[350px] bg-[#121212] border border-white/5 rounded-xl overflow-hidden flex flex-col h-[400px] lg:h-[500px] animate-fade-in flex-shrink-0">
-                                  <div className="p-4 border-b border-white/5 bg-gray-800/50 flex justify-between items-center">
+                              <div className="w-full lg:w-[350px] bg-[#121212] border border-white/5 rounded-xl overflow-hidden flex flex-col min-h-[150px] max-h-[400px] lg:max-h-none lg:h-[500px] animate-fade-in flex-shrink-0 z-0">
+                                  <div className="p-4 border-b border-white/5 bg-gray-800/50 flex justify-between items-center sticky top-0 z-10 backdrop-blur-md">
                                       <h3 className="font-bold text-white">选集 ({episodes.length})</h3>
                                       <button onClick={() => setShowSidePanel(false)} className="text-gray-400 hover:text-white p-1 hover:bg-white/10 rounded transition-colors">
                                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 4.5l7.5 7.5-7.5 7.5m-6-15l7.5 7.5-7.5 7.5" /></svg>

@@ -1,3 +1,4 @@
+
 export interface VodItem {
   vod_id: number | string;
   vod_name: string;
@@ -40,6 +41,7 @@ export interface VodDetail extends VodItem {
   vod_year: string;
   vod_play_url: string;
   vod_douban_score?: string;
+  vod_douban_id?: string;   // Douban ID
   vod_recs?: RecommendationItem[];
   vod_actors_extended?: ActorItem[];
 }
