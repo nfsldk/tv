@@ -8,7 +8,7 @@
     <meta name="description" content="CineStream AI - 您的智能免费影视库。提供海量高清电影、电视剧、动漫和综艺在线观看，支持智能P2P加速与AI助手互动。" />
     <title>CineStream AI - 免费高清影视 | 智能P2P加速</title>
     
-    <!-- Tailwind CSS -->
+    <!-- Tailwind CSS (Keep CDN for simplicity in this hybrid setup, or move to PostCSS later) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -39,26 +39,6 @@
         }
     </script>
     
-    <!-- Polyfill for process (needed for inline script env) -->
-    <script>
-        window.process = { env: { API_KEY: '' } };
-    </script>
-
-    <!-- Player Dependencies -->
-    <script src="https://cdn.jsdelivr.net/npm/artplayer@5.3.0/dist/artplayer.js"></script>
-    <!-- Danmaku Plugin -->
-    <script src="https://cdn.jsdelivr.net/npm/artplayer-plugin-danmuku@5.3.0/dist/artplayer-plugin-danmuku.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-    <!-- P2P Engine (SwarmCloud/CDNBye) -->
-    <script src="https://cdn.jsdelivr.net/npm/swarmcloud-hls@latest/dist/p2p-engine.min.js"></script>
-    
-    <!-- React Dependencies (UMD Global) -->
-    <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
-    
-    <!-- Babel for in-browser compilation -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
     <!-- DNS Prefetch for Image Proxy -->
     <link rel="dns-prefetch" href="https://wsrv.nl">
     <link rel="preconnect" href="https://wsrv.nl">
@@ -108,24 +88,22 @@
 <script type="importmap">
 {
   "imports": {
-    "@google/genai": "https://esm.run/@google/genai",
     "react/": "https://aistudiocdn.com/react@^19.2.1/",
     "react": "https://aistudiocdn.com/react@^19.2.1",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/"
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "vite": "https://aistudiocdn.com/vite@^7.2.6",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
+    "artplayer": "https://aistudiocdn.com/artplayer@^5.3.0",
+    "hls.js": "https://aistudiocdn.com/hls.js@^1.6.15",
+    "swarmcloud-hls": "https://aistudiocdn.com/swarmcloud-hls@^2.17.2",
+    "artplayer-plugin-danmuku": "https://aistudiocdn.com/artplayer-plugin-danmuku@^5.2.0"
   }
 }
 </script>
 </head>
 <body class="text-gray-200">
     <div id="root"></div>
-    <!-- Load scripts in dependency order -->
-    <script type="text/babel" data-presets="typescript,react" src="types.ts"></script>
-    <script type="text/babel" data-presets="typescript,react" src="services/vodService.ts"></script>
-    <script type="text/babel" data-presets="typescript,react" src="components/ImageWithFallback.tsx"></script>
-    <script type="text/babel" data-presets="typescript,react" src="components/VideoPlayer.tsx"></script>
-    <script type="text/babel" data-presets="typescript,react" src="components/MovieInfoCard.tsx"></script>
-    <script type="text/babel" data-presets="typescript,react" src="components/GeminiChat.tsx"></script>
-    <script type="text/babel" data-presets="typescript,react" src="App.tsx"></script>
-    <script type="text/babel" data-presets="typescript,react" src="index.tsx"></script>
+    <script type="module" src="/index.tsx"></script>
 </body>
 </html>

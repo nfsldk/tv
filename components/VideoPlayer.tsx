@@ -1,5 +1,8 @@
-
 import React, { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import Artplayer from 'artplayer';
+import artplayerPluginDanmuku from 'artplayer-plugin-danmuku';
+import Hls from 'hls.js';
+import P2PEngine from 'swarmcloud-hls';
 
 interface VideoPlayerProps {
   url: string;
@@ -265,7 +268,7 @@ const formatTime = (seconds: number) => {
 
 const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
   const { url, poster, autoplay = true, onEnded, onNext, title, episodeIndex = 0, doubanId } = props;
-  const artRef = useRef<any>(null);
+  const artRef = useRef<Artplayer | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
   const latestOnEnded = useRef(onEnded);
@@ -298,10 +301,6 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
       if (artRef.current && artRef.current.destroy) {
           artRef.current.destroy(false);
       }
-
-      const Artplayer = (window as any).Artplayer;
-      const artplayerPluginDanmuku = (window as any).artplayerPluginDanmuku;
-      if (!Artplayer) return;
 
       let hasSkippedHead = false;
       let isSkippingTail = false;
@@ -347,7 +346,7 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
               'webkit-playsinline': true,
           },
           plugins: [
-              artplayerPluginDanmuku && artplayerPluginDanmuku({
+              artplayerPluginDanmuku({
                   danmuku: () => fetchDanmaku(title || '', episodeIndex, url),
                   speed: 5,
                   opacity: 1,
@@ -490,9 +489,6 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
           ],
           customType: {
               m3u8: function (video: HTMLVideoElement, url: string, art: any) {
-                  const Hls = (window as any).Hls;
-                  const P2PEngine = (window as any).P2PEngine;
-
                   if (Hls.isSupported()) {
                       class CustomLoader extends Hls.DefaultConfig.loader {
                           constructor(config: any) { super(config); }
@@ -520,7 +516,7 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                           pLoader: CustomLoader,
                       });
 
-                      if (P2PEngine) {
+                      if (P2PEngine && P2PEngine.isSupported()) {
                           try {
                             new P2PEngine(hls, {
                                 maxBufSize: 120 * 1000 * 1000,
