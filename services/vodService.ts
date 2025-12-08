@@ -31,11 +31,15 @@ const fetchWithProxy = async (targetUrl: string, options: RequestInit = {}): Pro
       const response = await fetchWithTimeout(proxyUrl, options, 15000);
 
       if (response.ok) {
-          const contentType = response.headers.get('content-type');
-          if (contentType && contentType.includes('application/json')) {
-              return await response.json();
+          const text = await response.text();
+          try {
+              // Always try to parse JSON first, regardless of Content-Type
+              // Many CMS APIs return JSON with text/html headers via proxies
+              return JSON.parse(text);
+          } catch (e) {
+              // If JSON parse fails, return raw text (HTML scraping fallback)
+              return text;
           }
-          return await response.text();
       }
   } catch (e) {
       console.warn(`Proxy fetch failed for ${targetUrl}`, e);
@@ -177,7 +181,8 @@ export const searchMovies = async (keyword: string, page = 1): Promise<ApiRespon
   const targetUrl = `${API_BASE}?${params.toString()}`;
   try {
       const data = await fetchWithProxy(targetUrl);
-      if (typeof data === 'object' && (data.code === 1 || Array.isArray(data.list))) {
+      // Robust check for object structure
+      if (data && typeof data === 'object' && (data.code === 1 || Array.isArray(data.list))) {
           return data as ApiResponse;
       }
   } catch(e) {}

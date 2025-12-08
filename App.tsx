@@ -654,26 +654,33 @@ const App: React.FC = () => {
           const plainDesc = currentMovie.vod_content 
               ? currentMovie.vod_content.replace(/<[^>]+>/g, '').trim() 
               : `在线观看${currentMovie.vod_name}，主演：${currentMovie.vod_actor}`;
-          const shortDesc = plainDesc.slice(0, 160) + (plainDesc.length > 160 ? '...' : '');
+          const shortDesc = plainDesc.slice(0, 150) + (plainDesc.length > 150 ? '...' : '');
           
-          const keywords = [
+          const description = `CineStream AI为您提供${currentMovie.vod_name}免费高清在线观看，${currentMovie.vod_name}剧情介绍：${shortDesc}`;
+
+          // Keywords Strategy
+          const keywordList = [
               currentMovie.vod_name,
-              currentMovie.vod_actor?.split(',').slice(0, 3).join(','),
+              `${currentMovie.vod_name}在线观看`,
+              `${currentMovie.vod_name}免费播放`,
+              `${currentMovie.vod_name}高清下载`,
+              currentMovie.vod_actor?.split(',').slice(0, 5).join(','),
               currentMovie.vod_director,
               currentMovie.type_name,
               currentMovie.vod_year,
+              "CineStream AI",
               "在线观看",
-              "免费高清",
-              "剧情介绍"
-          ].filter(Boolean).join(',');
+              "免费高清"
+          ];
+          const keywords = keywordList.filter(Boolean).join(',');
 
-          // Determine Schema Type
+          // Schema Type
           const isMovie = currentMovie.type_name?.includes('电影');
           const schemaType = isMovie ? 'Movie' : 'TVSeries';
 
           updateSEO(
               pageTitle,
-              shortDesc,
+              description,
               keywords,
               currentMovie.vod_pic,
               {
@@ -770,25 +777,38 @@ const App: React.FC = () => {
       if (item.source === 'douban') {
           setLoading(true);
           try {
+              // Always fetch douban metadata first to have richer context if needed
               const doubanDetail = await fetchDoubanData(item.vod_name, item.vod_id);
               
               const searchQueries = new Set<string>();
+              // 1. Original Name
               searchQueries.add(item.vod_name);
-              searchQueries.add(item.vod_name.replace(/\s+/g, ''));
               
-              const cleanName = item.vod_name.split(/第|Season/)[0].trim();
-              if (cleanName && cleanName.length > 1 && cleanName !== item.vod_name) {
-                  searchQueries.add(cleanName);
+              // 2. Remove Year (e.g. "Movie (2024)" -> "Movie")
+              const nameNoYear = item.vod_name.replace(/[（\(]\d{4}[）\)]/g, '').trim();
+              searchQueries.add(nameNoYear);
+
+              // 3. Remove Season / Episode info from the NoYear name
+              // Matches "第x季", "Season x", "S01", "集"
+              const namePure = nameNoYear.split(/第|Season|S\d+|集/)[0].trim();
+              if (namePure && namePure.length > 1) {
+                  searchQueries.add(namePure);
               }
+              
+              // 4. Remove punctuation and spaces from pure name
+              const nameNoPunct = namePure.replace(/[：:,.，。!！?？\s]/g, '');
+              if (nameNoPunct) searchQueries.add(nameNoPunct);
 
               let bestMatch: VodItem | null = null;
               let list: VodItem[] = [];
 
+              // Iterate through generated queries until we find something
               for (const query of Array.from(searchQueries)) {
+                  if (!query) continue;
                   const searchRes = await searchMovies(query);
                   if (searchRes.list && searchRes.list.length > 0) {
                       list = searchRes.list as VodItem[];
-                      break;
+                      break; 
                   }
               }
               
@@ -800,9 +820,11 @@ const App: React.FC = () => {
                       let score = 0;
                       const candNameNorm = normalizeTitle(cand.vod_name);
 
+                      // Match Score Logic
                       if (candNameNorm === targetNameNorm) score += 100;
                       else if (candNameNorm.includes(targetNameNorm) || targetNameNorm.includes(candNameNorm)) score += 50;
 
+                      // Year bonus
                       if (doubanDetail?.year && cand.vod_year) {
                           const y1 = parseInt(doubanDetail.year);
                           const y2 = parseInt(cand.vod_year);
@@ -811,6 +833,7 @@ const App: React.FC = () => {
                           }
                       }
                       
+                      // Season bonus
                       if (item.vod_name.match(/第.+季|Season/)) {
                            const seasonNum = item.vod_name.match(/(\d+|[一二三四五六七八九十]+)/g)?.pop();
                            if (seasonNum && cand.vod_name.includes(seasonNum)) {
@@ -825,21 +848,16 @@ const App: React.FC = () => {
                   }
 
                   if (bestMatch) {
-                      // Navigate to play URL
+                      // Found a playable source -> Go to player
                       navigate(`/play/${bestMatch.vod_id}`);
-                      
-                      // We need to wait for the movie to load via effect or manually set it if we want instant feedback,
-                      // but since we are navigating, the effect will trigger.
-                      // HOWEVER, to keep the Douban metadata, we might want to store it temporarily or refetch it.
-                      // For now, let's let the effect handle the basic load, and we try to inject metadata if possible.
-                      // A better approach is to rely on handleSelectMovie logic which will run when URL changes.
-                      // NOTE: Douban Metadata enrichment happens inside handleSelectMovie
                   } else {
-                      triggerSearch(item.vod_name);
+                      // Found results but scoring failed (rare) -> Go to search
+                      triggerSearch(nameNoYear || item.vod_name);
                   }
 
               } else {
-                  triggerSearch(item.vod_name);
+                  // No results found in CMS -> Go to search page with the cleanest name
+                  triggerSearch(nameNoYear || item.vod_name);
               }
           } catch (e) {
               triggerSearch(item.vod_name);
@@ -847,6 +865,7 @@ const App: React.FC = () => {
               setLoading(false);
           }
       } else {
+          // Direct CMS item
           navigate(`/play/${item.vod_id}`);
       }
   };
