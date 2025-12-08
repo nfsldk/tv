@@ -115,7 +115,7 @@ const fetchCMSList = async (typeId: number, limit = 12, page = 1): Promise<VodIt
                 type_name: item.type_name,
                 vod_year: item.vod_year,
                 vod_remarks: item.vod_remarks,
-                source: 'cms' 
+                source: 'cms' as const
             }));
         }
     } catch (e) {
