@@ -191,7 +191,7 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
             setTimeout(() => {
                 setCurrentIndex((prev) => (prev + 1) % items.length);
                 setIsFading(false);
-            }, 600);
+            }, 6000);
         }, 8000);
         return () => clearInterval(timer);
     }, [items.length]);
@@ -656,31 +656,24 @@ const App: React.FC = () => {
               : `在线观看${currentMovie.vod_name}，主演：${currentMovie.vod_actor}`;
           const shortDesc = plainDesc.slice(0, 150) + (plainDesc.length > 150 ? '...' : '');
           
-          const description = `CineStream AI为您提供${currentMovie.vod_name}免费高清在线观看，${currentMovie.vod_name}剧情介绍：${shortDesc}`;
-
-          // Keywords Strategy
-          const keywordList = [
+          const keywords = [
               currentMovie.vod_name,
-              `${currentMovie.vod_name}在线观看`,
-              `${currentMovie.vod_name}免费播放`,
-              `${currentMovie.vod_name}高清下载`,
-              currentMovie.vod_actor?.split(',').slice(0, 5).join(','),
+              currentMovie.vod_actor?.split(',').slice(0, 3).join(','),
               currentMovie.vod_director,
               currentMovie.type_name,
               currentMovie.vod_year,
-              "CineStream AI",
               "在线观看",
-              "免费高清"
-          ];
-          const keywords = keywordList.filter(Boolean).join(',');
+              "免费高清",
+              "剧情介绍"
+          ].filter(Boolean).join(',');
 
-          // Schema Type
+          // Determine Schema Type
           const isMovie = currentMovie.type_name?.includes('电影');
           const schemaType = isMovie ? 'Movie' : 'TVSeries';
 
           updateSEO(
               pageTitle,
-              description,
+              shortDesc,
               keywords,
               currentMovie.vod_pic,
               {
@@ -774,98 +767,63 @@ const App: React.FC = () => {
   };
 
   const handleItemClick = async (item: VodItem) => {
+      // 1. If it's sourced from Douban (e.g. Home/Category), we MUST bridge it to CMS
       if (item.source === 'douban') {
           setLoading(true);
           try {
-              // Always fetch douban metadata first to have richer context if needed
-              const doubanDetail = await fetchDoubanData(item.vod_name, item.vod_id);
+              // Fetch extra douban info for background use (optional but good for cache)
+              fetchDoubanData(item.vod_name, item.vod_id);
+
+              // GENERATE CLEAN SEARCH QUERIES
+              const queries = new Set<string>();
               
-              const searchQueries = new Set<string>();
-              // 1. Original Name
-              searchQueries.add(item.vod_name);
-              
-              // 2. Remove Year (e.g. "Movie (2024)" -> "Movie")
+              // A. Original Name
+              queries.add(item.vod_name);
+
+              // B. Remove Year: "Movie (2024)" -> "Movie"
               const nameNoYear = item.vod_name.replace(/[（\(]\d{4}[）\)]/g, '').trim();
-              searchQueries.add(nameNoYear);
+              if(nameNoYear !== item.vod_name) queries.add(nameNoYear);
 
-              // 3. Remove Season / Episode info from the NoYear name
-              // Matches "第x季", "Season x", "S01", "集"
-              const namePure = nameNoYear.split(/第|Season|S\d+|集/)[0].trim();
-              if (namePure && namePure.length > 1) {
-                  searchQueries.add(namePure);
-              }
+              // C. Remove Season/Episode: "Series S01" -> "Series"
+              const nameNoSeason = nameNoYear.replace(/第.+季|Season\s*\d+|S\d+|集/gi, '').trim();
+              if(nameNoSeason && nameNoSeason.length > 1) queries.add(nameNoSeason);
               
-              // 4. Remove punctuation and spaces from pure name
-              const nameNoPunct = namePure.replace(/[：:,.，。!！?？\s]/g, '');
-              if (nameNoPunct) searchQueries.add(nameNoPunct);
+              // D. Pure Text: Remove punctuation
+              const namePure = nameNoSeason.replace(/[：:,.，。!！?？\s]/g, '');
+              if(namePure && namePure.length > 1) queries.add(namePure);
 
-              let bestMatch: VodItem | null = null;
-              let list: VodItem[] = [];
+              let foundVideo: VodItem | null = null;
 
-              // Iterate through generated queries until we find something
-              for (const query of Array.from(searchQueries)) {
-                  if (!query) continue;
-                  const searchRes = await searchMovies(query);
-                  if (searchRes.list && searchRes.list.length > 0) {
-                      list = searchRes.list as VodItem[];
+              // Waterfall Search: Try queries from most specific to generic
+              for (const q of Array.from(queries)) {
+                  if(!q) continue;
+                  const res = await searchMovies(q);
+                  if (res.list && res.list.length > 0) {
+                      // Found something!
+                      // Simple heuristic: pick the first one or logic match
+                      // For now, auto-picking the first result is better than "No Result" page.
+                      foundVideo = res.list[0] as VodItem;
                       break; 
                   }
               }
-              
-              if (list.length > 0) {
-                  const targetNameNorm = normalizeTitle(item.vod_name);
-                  let maxScore = -1;
-                  
-                  for (const cand of list) {
-                      let score = 0;
-                      const candNameNorm = normalizeTitle(cand.vod_name);
 
-                      // Match Score Logic
-                      if (candNameNorm === targetNameNorm) score += 100;
-                      else if (candNameNorm.includes(targetNameNorm) || targetNameNorm.includes(candNameNorm)) score += 50;
-
-                      // Year bonus
-                      if (doubanDetail?.year && cand.vod_year) {
-                          const y1 = parseInt(doubanDetail.year);
-                          const y2 = parseInt(cand.vod_year);
-                          if (!isNaN(y1) && !isNaN(y2) && Math.abs(y1 - y2) <= 1) {
-                              score += 20;
-                          }
-                      }
-                      
-                      // Season bonus
-                      if (item.vod_name.match(/第.+季|Season/)) {
-                           const seasonNum = item.vod_name.match(/(\d+|[一二三四五六七八九十]+)/g)?.pop();
-                           if (seasonNum && cand.vod_name.includes(seasonNum)) {
-                               score += 10;
-                           }
-                      }
-
-                      if (score > maxScore) {
-                          maxScore = score;
-                          bestMatch = cand;
-                      }
-                  }
-
-                  if (bestMatch) {
-                      // Found a playable source -> Go to player
-                      navigate(`/play/${bestMatch.vod_id}`);
-                  } else {
-                      // Found results but scoring failed (rare) -> Go to search
-                      triggerSearch(nameNoYear || item.vod_name);
-                  }
-
+              if (foundVideo) {
+                  // SUCCESS: Bridge successful, go to player
+                  // We use the CMS ID here
+                  navigate(`/play/${foundVideo.vod_id}`);
               } else {
-                  // No results found in CMS -> Go to search page with the cleanest name
+                  // FAILURE: No match found in CMS after all tries
+                  // Go to search page with the cleanest possible name so user can manually try
                   triggerSearch(nameNoYear || item.vod_name);
               }
+
           } catch (e) {
               triggerSearch(item.vod_name);
           } finally {
               setLoading(false);
           }
       } else {
-          // Direct CMS item
+          // 2. Direct CMS Item (e.g. from Search Result or fallback lists)
           navigate(`/play/${item.vod_id}`);
       }
   };
