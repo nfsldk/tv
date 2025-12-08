@@ -17,9 +17,6 @@ const NavIcons = {
     Variety: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>,
 };
 
-// React Declaration at top level to avoid TDZ issues in some bundlers/environments
-const ReactRef = React;
-
 // Helper to remove spaces and punctuation for comparison
 const normalizeTitle = (str: string) => {
     return str.replace(/\s+/g, '').replace(/[：:,.，。!！?？]/g, '').toLowerCase();
@@ -54,9 +51,19 @@ const updateSEO = (title: string, description: string, keywords: string, image?:
     
     setOg('og:title', title);
     setOg('og:description', description);
+    setOg('og:type', 'website');
+    setOg('og:site_name', 'CineStream AI');
+    setOg('og:url', window.location.href);
     if (image) setOg('og:image', image);
 
-    // JSON-LD Structured Data
+    let linkCanonical = document.querySelector("link[rel='canonical']");
+    if (!linkCanonical) {
+        linkCanonical = document.createElement("link");
+        linkCanonical.setAttribute("rel", "canonical");
+        document.head.appendChild(linkCanonical);
+    }
+    linkCanonical.setAttribute("href", window.location.href.split('?')[0]);
+
     if (jsonLd) {
         let script = document.querySelector('#json-ld');
         if (!script) {
@@ -170,6 +177,10 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
     const [currentIndex, setCurrentIndex] = useState(0);
     const [detail, setDetail] = useState<any>(null);
     const [isFading, setIsFading] = useState(false);
+    
+    // Touch state for swipe gestures
+    const [touchStart, setTouchStart] = useState<number | null>(null);
+    const [touchEnd, setTouchEnd] = useState<number | null>(null);
 
     const currentItem = items[currentIndex];
 
@@ -180,7 +191,7 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
             setTimeout(() => {
                 setCurrentIndex((prev) => (prev + 1) % items.length);
                 setIsFading(false);
-            }, 600);
+            }, 6000);
         }, 8000);
         return () => clearInterval(timer);
     }, [items.length]);
@@ -202,13 +213,49 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
         return () => { cancelled = true; };
     }, [currentItem]); 
 
+    // Handle Swipe Gestures
+    const handleTouchStart = (e: React.TouchEvent) => {
+        setTouchEnd(null);
+        setTouchStart(e.targetTouches[0].clientX);
+    };
+
+    const handleTouchMove = (e: React.TouchEvent) => {
+        setTouchEnd(e.targetTouches[0].clientX);
+    };
+
+    const handleTouchEnd = () => {
+        if (!touchStart || !touchEnd) return;
+        const distance = touchStart - touchEnd;
+        const isLeftSwipe = distance > 50;
+        const isRightSwipe = distance < -50;
+
+        if (isLeftSwipe || isRightSwipe) {
+            setIsFading(true);
+            setTimeout(() => {
+                if (isLeftSwipe) {
+                    // Next slide
+                    setCurrentIndex((prev) => (prev + 1) % items.length);
+                } else {
+                    // Previous slide
+                    setCurrentIndex((prev) => (prev - 1 + items.length) % items.length);
+                }
+                setIsFading(false);
+            }, 300); // Faster transition for manual swipe
+        }
+    };
+
     if (!currentItem) return null;
 
     const displayPoster = detail?.wallpaper || detail?.pic || currentItem.vod_pic;
     const posterUrl = detail?.pic || currentItem.vod_pic;
 
     return (
-        <div className="relative w-full h-[45vh] md:h-[50vh] lg:h-[55vh] rounded-2xl md:rounded-3xl overflow-hidden mb-8 md:mb-12 shadow-2xl border border-white/5 group mt-4 md:mt-8 flex justify-center items-center">
+        <div 
+            className="relative w-full h-[45vh] md:h-[50vh] lg:h-[55vh] rounded-2xl md:rounded-3xl overflow-hidden mb-8 md:mb-12 shadow-2xl border border-white/5 group mt-4 md:mt-8 flex justify-center items-center select-none"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+        >
             <div className={`absolute inset-0 transition-opacity duration-700 ${isFading ? 'opacity-0' : 'opacity-100'}`}>
                 <ImageWithFallback 
                     src={displayPoster}
@@ -265,7 +312,8 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
                 {items.map((_, idx) => (
                     <button
                         key={idx}
-                        onClick={() => {
+                        onClick={(e) => {
+                            e.stopPropagation(); // Prevent touch event bubble if user taps indicator
                             setIsFading(true);
                             setTimeout(() => {
                                 setCurrentIndex(idx);
@@ -551,60 +599,115 @@ const App: React.FC = () => {
       // 1. Default SEO (Home)
       if (location.pathname === '/') {
           updateSEO(
-              'CineStream AI - 免费高清影视 | 智能P2P加速',
-              'CineStream AI - 您的智能免费影视库。提供海量高清电影、电视剧、动漫和综艺在线观看，支持智能P2P加速与AI助手互动。',
-              '免费电影,高清影视,在线观看,CineStream,美剧,韩剧,动漫,综艺,P2P加速'
+              'CineStream AI - 海量高清电影电视剧在线观看',
+              'CineStream AI提供最新最热的电影、电视剧、动漫、综艺高清在线观看。智能P2P加速，极速播放，无广告干扰。涵盖美剧、韩剧、国产剧、日漫等丰富资源。',
+              '电影,电视剧,在线观看,CineStream,美剧,韩剧,动漫,综艺,P2P加速,高清影视,免费电影',
+              undefined,
+              {
+                  "@context": "https://schema.org",
+                  "@type": "WebSite",
+                  "name": "CineStream AI",
+                  "url": window.location.origin,
+                  "potentialAction": {
+                      "@type": "SearchAction",
+                      "target": `${window.location.origin}/sousuo?q={search_term_string}`,
+                      "query-input": "required name=search_term_string"
+                  }
+              }
           );
       }
       // 2. Category Pages
       else if (['/dianying', '/dianshiju', '/dongman', '/zongyi'].includes(location.pathname)) {
-          const categoryNames: Record<string, string> = {
-              '/dianying': '电影',
-              '/dianshiju': '电视剧',
-              '/dongman': '动漫',
-              '/zongyi': '综艺'
+          const categoryMap: Record<string, {name: string, type: string}> = {
+              '/dianying': { name: '电影', type: 'Movie' },
+              '/dianshiju': { name: '电视剧', type: 'TVSeries' },
+              '/dongman': { name: '动漫', type: 'TVSeries' },
+              '/zongyi': { name: '综艺', type: 'TVSeries' }
           };
-          const name = categoryNames[location.pathname];
-          updateSEO(
-              `${name}频道 - CineStream AI`,
-              `CineStream为您提供最新最热的${name}在线观看，海量高清资源，每日更新。`,
-              `${name},在线观看,免费${name},CineStream`
-          );
+          const info = categoryMap[location.pathname];
+          if (info) {
+              const year = new Date().getFullYear();
+              updateSEO(
+                  `${info.name}频道_${year}最新${info.name}大全_${info.name}排行榜_在线观看 - CineStream AI`,
+                  `CineStream ${info.name}频道为您提供2024最新${info.name}在线观看，包含热门${info.name}推荐、${info.name}排行榜。海量${info.name}资源，高清流畅播放。`,
+                  `${info.name},${info.name}在线观看,最新${info.name},${info.name}排行榜,免费${info.name},CineStream`,
+                  undefined,
+                  {
+                      "@context": "https://schema.org",
+                      "@type": "CollectionPage",
+                      "name": `${info.name}频道`,
+                      "description": `最新最热${info.name}在线观看`
+                  }
+              );
+          }
       }
-      // 3. Player Page
+      // 3. Player Page - Optimized with Tencent Video Strategy
       else if (location.pathname.startsWith('/play/') && currentMovie) {
-          // Dynamic Episode Title
-          let pageTitle = `${currentMovie.vod_name} (${currentMovie.vod_year}) - 在线观看 - CineStream AI`;
+          // Identify episode info
+          let epSuffix = '';
+          let epNum = '';
           if (episodes.length > 0 && currentEpisodeIndex >= 0 && episodes[currentEpisodeIndex]) {
-              const epTitle = episodes[currentEpisodeIndex].title.replace(/第|集/g, '').trim();
-              pageTitle = `${currentMovie.vod_name} 第${epTitle}集 - 在线观看 - CineStream AI`;
+              epNum = episodes[currentEpisodeIndex].title.replace(/第|集|EP/gi, '').trim();
+              if (epNum) epSuffix = `第${epNum}集`;
           }
 
-          const desc = currentMovie.vod_content 
-              ? currentMovie.vod_content.replace(/<[^>]+>/g, '').slice(0, 150) + '...'
+          // Title Strategy: [Name] [Episode]在线观看_[Name]免费高清_[Name]剧情介绍_CineStream AI
+          let pageTitle = '';
+          if (epSuffix) {
+              pageTitle = `${currentMovie.vod_name} ${epSuffix}在线观看_${currentMovie.vod_name}免费高清_${currentMovie.vod_name}剧情_CineStream AI`;
+          } else {
+              pageTitle = `${currentMovie.vod_name}在线观看_${currentMovie.vod_name}免费高清_${currentMovie.vod_name}完整版_CineStream AI`;
+          }
+
+          // Description Strategy
+          const plainDesc = currentMovie.vod_content 
+              ? currentMovie.vod_content.replace(/<[^>]+>/g, '').trim() 
               : `在线观看${currentMovie.vod_name}，主演：${currentMovie.vod_actor}`;
+          const shortDesc = plainDesc.slice(0, 150) + (plainDesc.length > 150 ? '...' : '');
           
-          const epDesc = episodes.length > 0 && currentEpisodeIndex >= 0
-              ? `正在播放${currentMovie.vod_name}第${episodes[currentEpisodeIndex].title.replace(/第|集/g, '')}集。${desc}`
-              : desc;
+          const description = `CineStream AI为您提供${currentMovie.vod_name}${epSuffix}免费高清在线观看，${currentMovie.vod_name}剧情介绍：${shortDesc}`;
+
+          // Keywords Strategy
+          const keywordList = [
+              currentMovie.vod_name,
+              epSuffix ? `${currentMovie.vod_name}${epSuffix}` : '',
+              `${currentMovie.vod_name}在线观看`,
+              `${currentMovie.vod_name}免费播放`,
+              `${currentMovie.vod_name}高清下载`,
+              currentMovie.vod_actor?.split(',').slice(0, 5).join(','),
+              currentMovie.vod_director,
+              currentMovie.type_name,
+              currentMovie.vod_year,
+              "CineStream AI",
+              "在线观看",
+              "免费高清"
+          ];
+          const keywords = keywordList.filter(Boolean).join(',');
+
+          // Schema Type
+          const isMovie = currentMovie.type_name?.includes('电影');
+          const schemaType = isMovie ? 'Movie' : 'TVSeries';
 
           updateSEO(
               pageTitle,
-              epDesc,
-              `${currentMovie.vod_name},${currentMovie.vod_actor},${currentMovie.vod_director},在线观看,免费高清,第${currentEpisodeIndex+1}集`,
+              description,
+              keywords,
               currentMovie.vod_pic,
               {
                   "@context": "https://schema.org",
-                  "@type": "Movie",
+                  "@type": schemaType,
                   "name": currentMovie.vod_name,
                   "image": currentMovie.vod_pic,
+                  "description": shortDesc,
                   "director": { "@type": "Person", "name": currentMovie.vod_director },
-                  "actor": currentMovie.vod_actor.split(',').map(a => ({ "@type": "Person", "name": a.trim() })),
+                  "actor": currentMovie.vod_actor?.split(',').map(a => ({ "@type": "Person", "name": a.trim() })),
                   "datePublished": currentMovie.vod_year,
-                  "description": desc,
-                  "potentialAction": {
-                      "@type": "WatchAction",
-                      "target": window.location.href
+                  "genre": currentMovie.type_name,
+                  "offers": {
+                      "@type": "Offer",
+                      "price": "0",
+                      "priceCurrency": "CNY",
+                      "availability": "https://schema.org/InStock"
                   }
               }
           );
