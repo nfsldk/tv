@@ -31,11 +31,13 @@ const fetchWithProxy = async (targetUrl: string, options: RequestInit = {}): Pro
       const response = await fetchWithTimeout(proxyUrl, options, 15000);
 
       if (response.ok) {
-          const contentType = response.headers.get('content-type');
-          if (contentType && contentType.includes('application/json')) {
-              return await response.json();
+          const text = await response.text();
+          try {
+              // Force JSON parse
+              return JSON.parse(text);
+          } catch(e) {
+              return text;
           }
-          return await response.text();
       }
   } catch (e) {
       console.warn(`Proxy fetch failed for ${targetUrl}`, e);
@@ -211,19 +213,16 @@ export const parseEpisodes = (urlStr: string, fromStr: string): Episode[] => {
   return episodes;
 };
 
-// ENRICHMENT LOGIC: Merge Douban Data
 export const enrichVodDetail = async (detail: VodDetail): Promise<Partial<VodDetail> | null> => {
     try {
         const doubanData = await fetchDoubanData(detail.vod_name);
         if (doubanData) {
             const updates: Partial<VodDetail> = {};
-            // Always overwrite basic info if Douban has it (usually higher quality/accuracy)
             if (doubanData.score) updates.vod_score = doubanData.score;
             if (doubanData.pic) updates.vod_pic = doubanData.pic;
-            if (doubanData.content) updates.vod_content = doubanData.content;
-            if (doubanData.year) updates.vod_year = doubanData.year;
-            
-            // Detail Fields
+            if (doubanData.recs) updates.vod_recs = doubanData.recs;
+            if (doubanData.actorsExtended) updates.vod_actors_extended = doubanData.actorsExtended;
+            // Always overwrite detail fields if douban has them
             if (doubanData.director) updates.vod_director = doubanData.director;
             if (doubanData.actor) updates.vod_actor = doubanData.actor;
             if (doubanData.writer) updates.vod_writer = doubanData.writer;
@@ -235,14 +234,7 @@ export const enrichVodDetail = async (detail: VodDetail): Promise<Partial<VodDet
             if (doubanData.area) updates.vod_area = doubanData.area;
             if (doubanData.lang) updates.vod_lang = doubanData.lang;
             if (doubanData.tag) updates.type_name = doubanData.tag;
-
-            // Arrays
-            if (doubanData.recs && doubanData.recs.length > 0) {
-                updates.vod_recs = doubanData.recs;
-            }
-            if (doubanData.actorsExtended && doubanData.actorsExtended.length > 0) {
-                updates.vod_actors_extended = doubanData.actorsExtended;
-            }
+            
             return updates;
         }
     } catch (e) { }
@@ -264,8 +256,6 @@ export const fetchDoubanData = async (keyword: string, doubanId?: string | numbe
     if (!html || typeof html !== 'string') return null;
     
     const result: any = { doubanId: String(targetId) };
-    
-    // REGEX PARSING LOGIC for Douban HTML
     const scoreMatch = html.match(/property="v:average">([\d\.]+)<\/strong>/);
     if(scoreMatch) result.score = scoreMatch[1];
     
