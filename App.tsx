@@ -191,7 +191,7 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
             setTimeout(() => {
                 setCurrentIndex((prev) => (prev + 1) % items.length);
                 setIsFading(false);
-            }, 6000);
+            }, 600);
         }, 8000);
         return () => clearInterval(timer);
     }, [items.length]);
@@ -641,56 +641,39 @@ const App: React.FC = () => {
               );
           }
       }
-      // 3. Player Page - Optimized with Tencent Video Strategy
+      // 3. Player Page
       else if (location.pathname.startsWith('/play/') && currentMovie) {
-          // Identify episode info
-          let epSuffix = '';
-          let epNum = '';
+          // Dynamic Episode Title
+          let pageTitle = `${currentMovie.vod_name} - 高清视频在线观看 - ${currentMovie.vod_name}剧情介绍 - CineStream AI`;
           if (episodes.length > 0 && currentEpisodeIndex >= 0 && episodes[currentEpisodeIndex]) {
-              epNum = episodes[currentEpisodeIndex].title.replace(/第|集|EP/gi, '').trim();
-              if (epNum) epSuffix = `第${epNum}集`;
+              const epTitle = episodes[currentEpisodeIndex].title.replace(/第|集/g, '').trim();
+              pageTitle = `${currentMovie.vod_name} 第${epTitle}集 - 高清视频在线观看 - CineStream AI`;
           }
 
-          // Title Strategy: [Name] [Episode]在线观看_[Name]免费高清_[Name]剧情介绍_CineStream AI
-          let pageTitle = '';
-          if (epSuffix) {
-              pageTitle = `${currentMovie.vod_name} ${epSuffix}在线观看_${currentMovie.vod_name}免费高清_${currentMovie.vod_name}剧情_CineStream AI`;
-          } else {
-              pageTitle = `${currentMovie.vod_name}在线观看_${currentMovie.vod_name}免费高清_${currentMovie.vod_name}完整版_CineStream AI`;
-          }
-
-          // Description Strategy
+          // Clean description
           const plainDesc = currentMovie.vod_content 
               ? currentMovie.vod_content.replace(/<[^>]+>/g, '').trim() 
               : `在线观看${currentMovie.vod_name}，主演：${currentMovie.vod_actor}`;
-          const shortDesc = plainDesc.slice(0, 150) + (plainDesc.length > 150 ? '...' : '');
+          const shortDesc = plainDesc.slice(0, 160) + (plainDesc.length > 160 ? '...' : '');
           
-          const description = `CineStream AI为您提供${currentMovie.vod_name}${epSuffix}免费高清在线观看，${currentMovie.vod_name}剧情介绍：${shortDesc}`;
-
-          // Keywords Strategy
-          const keywordList = [
+          const keywords = [
               currentMovie.vod_name,
-              epSuffix ? `${currentMovie.vod_name}${epSuffix}` : '',
-              `${currentMovie.vod_name}在线观看`,
-              `${currentMovie.vod_name}免费播放`,
-              `${currentMovie.vod_name}高清下载`,
-              currentMovie.vod_actor?.split(',').slice(0, 5).join(','),
+              currentMovie.vod_actor?.split(',').slice(0, 3).join(','),
               currentMovie.vod_director,
               currentMovie.type_name,
               currentMovie.vod_year,
-              "CineStream AI",
               "在线观看",
-              "免费高清"
-          ];
-          const keywords = keywordList.filter(Boolean).join(',');
+              "免费高清",
+              "剧情介绍"
+          ].filter(Boolean).join(',');
 
-          // Schema Type
+          // Determine Schema Type
           const isMovie = currentMovie.type_name?.includes('电影');
           const schemaType = isMovie ? 'Movie' : 'TVSeries';
 
           updateSEO(
               pageTitle,
-              description,
+              shortDesc,
               keywords,
               currentMovie.vod_pic,
               {
