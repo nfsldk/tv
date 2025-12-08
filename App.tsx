@@ -27,8 +27,10 @@ const normalizeTitle = (str: string) => {
 
 // Helper function to update SEO metadata
 const updateSEO = (title: string, description: string, keywords: string, image?: string, jsonLd?: object) => {
+    // 1. Update Title
     document.title = title;
     
+    // 2. Helper to set meta tags
     const setMeta = (name: string, content: string) => {
         let element = document.querySelector(`meta[name="${name}"]`);
         if (!element) {
@@ -39,6 +41,7 @@ const updateSEO = (title: string, description: string, keywords: string, image?:
         element.setAttribute('content', content);
     };
 
+    // 3. Helper to set OG tags
     const setOg = (property: string, content: string) => {
         let element = document.querySelector(`meta[property="${property}"]`);
         if (!element) {
@@ -49,14 +52,28 @@ const updateSEO = (title: string, description: string, keywords: string, image?:
         element.setAttribute('content', content);
     };
 
+    // 4. Update Standard Meta Tags
     setMeta('description', description);
     setMeta('keywords', keywords);
     
+    // 5. Update Open Graph Tags
     setOg('og:title', title);
     setOg('og:description', description);
+    setOg('og:type', 'website');
+    setOg('og:site_name', 'CineStream AI');
+    setOg('og:url', window.location.href);
     if (image) setOg('og:image', image);
 
-    // JSON-LD Structured Data
+    // 6. Canonical Link
+    let linkCanonical = document.querySelector("link[rel='canonical']");
+    if (!linkCanonical) {
+        linkCanonical = document.createElement("link");
+        linkCanonical.setAttribute("rel", "canonical");
+        document.head.appendChild(linkCanonical);
+    }
+    linkCanonical.setAttribute("href", window.location.href.split('?')[0]);
+
+    // 7. Inject JSON-LD Structured Data
     if (jsonLd) {
         let script = document.querySelector('#json-ld');
         if (!script) {
@@ -551,60 +568,98 @@ const App: React.FC = () => {
       // 1. Default SEO (Home)
       if (location.pathname === '/') {
           updateSEO(
-              'CineStream AI - 免费高清影视 | 智能P2P加速',
-              'CineStream AI - 您的智能免费影视库。提供海量高清电影、电视剧、动漫和综艺在线观看，支持智能P2P加速与AI助手互动。',
-              '免费电影,高清影视,在线观看,CineStream,美剧,韩剧,动漫,综艺,P2P加速'
+              'CineStream AI - 海量高清电影电视剧在线观看',
+              'CineStream AI提供最新最热的电影、电视剧、动漫、综艺高清在线观看。智能P2P加速，极速播放，无广告干扰。涵盖美剧、韩剧、国产剧、日漫等丰富资源。',
+              '电影,电视剧,在线观看,CineStream,美剧,韩剧,动漫,综艺,P2P加速,高清影视,免费电影',
+              undefined,
+              {
+                  "@context": "https://schema.org",
+                  "@type": "WebSite",
+                  "name": "CineStream AI",
+                  "url": window.location.origin,
+                  "potentialAction": {
+                      "@type": "SearchAction",
+                      "target": `${window.location.origin}/sousuo?q={search_term_string}`,
+                      "query-input": "required name=search_term_string"
+                  }
+              }
           );
       }
       // 2. Category Pages
       else if (['/dianying', '/dianshiju', '/dongman', '/zongyi'].includes(location.pathname)) {
-          const categoryNames: Record<string, string> = {
-              '/dianying': '电影',
-              '/dianshiju': '电视剧',
-              '/dongman': '动漫',
-              '/zongyi': '综艺'
+          const categoryMap: Record<string, {name: string, type: string}> = {
+              '/dianying': { name: '电影', type: 'Movie' },
+              '/dianshiju': { name: '电视剧', type: 'TVSeries' },
+              '/dongman': { name: '动漫', type: 'TVSeries' },
+              '/zongyi': { name: '综艺', type: 'TVSeries' }
           };
-          const name = categoryNames[location.pathname];
-          updateSEO(
-              `${name}频道 - CineStream AI`,
-              `CineStream为您提供最新最热的${name}在线观看，海量高清资源，每日更新。`,
-              `${name},在线观看,免费${name},CineStream`
-          );
+          const info = categoryMap[location.pathname];
+          if (info) {
+              const year = new Date().getFullYear();
+              updateSEO(
+                  `${info.name}频道_${year}最新${info.name}大全_${info.name}排行榜_在线观看 - CineStream AI`,
+                  `CineStream ${info.name}频道为您提供2024最新${info.name}在线观看，包含热门${info.name}推荐、${info.name}排行榜。海量${info.name}资源，高清流畅播放。`,
+                  `${info.name},${info.name}在线观看,最新${info.name},${info.name}排行榜,免费${info.name},CineStream`,
+                  undefined,
+                  {
+                      "@context": "https://schema.org",
+                      "@type": "CollectionPage",
+                      "name": `${info.name}频道`,
+                      "description": `最新最热${info.name}在线观看`
+                  }
+              );
+          }
       }
       // 3. Player Page
       else if (location.pathname.startsWith('/play/') && currentMovie) {
           // Dynamic Episode Title
-          let pageTitle = `${currentMovie.vod_name} (${currentMovie.vod_year}) - 在线观看 - CineStream AI`;
+          let pageTitle = `${currentMovie.vod_name} - 高清视频在线观看 - ${currentMovie.vod_name}剧情介绍 - CineStream AI`;
           if (episodes.length > 0 && currentEpisodeIndex >= 0 && episodes[currentEpisodeIndex]) {
               const epTitle = episodes[currentEpisodeIndex].title.replace(/第|集/g, '').trim();
-              pageTitle = `${currentMovie.vod_name} 第${epTitle}集 - 在线观看 - CineStream AI`;
+              pageTitle = `${currentMovie.vod_name} 第${epTitle}集 - 高清视频在线观看 - CineStream AI`;
           }
 
-          const desc = currentMovie.vod_content 
-              ? currentMovie.vod_content.replace(/<[^>]+>/g, '').slice(0, 150) + '...'
+          // Clean description
+          const plainDesc = currentMovie.vod_content 
+              ? currentMovie.vod_content.replace(/<[^>]+>/g, '').trim() 
               : `在线观看${currentMovie.vod_name}，主演：${currentMovie.vod_actor}`;
+          const shortDesc = plainDesc.slice(0, 160) + (plainDesc.length > 160 ? '...' : '');
           
-          const epDesc = episodes.length > 0 && currentEpisodeIndex >= 0
-              ? `正在播放${currentMovie.vod_name}第${episodes[currentEpisodeIndex].title.replace(/第|集/g, '')}集。${desc}`
-              : desc;
+          const keywords = [
+              currentMovie.vod_name,
+              currentMovie.vod_actor?.split(',').slice(0, 3).join(','),
+              currentMovie.vod_director,
+              currentMovie.type_name,
+              currentMovie.vod_year,
+              "在线观看",
+              "免费高清",
+              "剧情介绍"
+          ].filter(Boolean).join(',');
+
+          // Determine Schema Type
+          const isMovie = currentMovie.type_name?.includes('电影');
+          const schemaType = isMovie ? 'Movie' : 'TVSeries';
 
           updateSEO(
               pageTitle,
-              epDesc,
-              `${currentMovie.vod_name},${currentMovie.vod_actor},${currentMovie.vod_director},在线观看,免费高清,第${currentEpisodeIndex+1}集`,
+              shortDesc,
+              keywords,
               currentMovie.vod_pic,
               {
                   "@context": "https://schema.org",
-                  "@type": "Movie",
+                  "@type": schemaType,
                   "name": currentMovie.vod_name,
                   "image": currentMovie.vod_pic,
+                  "description": shortDesc,
                   "director": { "@type": "Person", "name": currentMovie.vod_director },
-                  "actor": currentMovie.vod_actor.split(',').map(a => ({ "@type": "Person", "name": a.trim() })),
+                  "actor": currentMovie.vod_actor?.split(',').map(a => ({ "@type": "Person", "name": a.trim() })),
                   "datePublished": currentMovie.vod_year,
-                  "description": desc,
-                  "potentialAction": {
-                      "@type": "WatchAction",
-                      "target": window.location.href
+                  "genre": currentMovie.type_name,
+                  "offers": {
+                      "@type": "Offer",
+                      "price": "0",
+                      "priceCurrency": "CNY",
+                      "availability": "https://schema.org/InStock"
                   }
               }
           );
