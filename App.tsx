@@ -573,15 +573,25 @@ const App: React.FC = () => {
       }
       // 3. Player Page
       else if (location.pathname.startsWith('/play/') && currentMovie) {
-          const title = `${currentMovie.vod_name} (${currentMovie.vod_year}) - 在线观看 - CineStream AI`;
+          // Dynamic Episode Title
+          let pageTitle = `${currentMovie.vod_name} (${currentMovie.vod_year}) - 在线观看 - CineStream AI`;
+          if (episodes.length > 0 && currentEpisodeIndex >= 0 && episodes[currentEpisodeIndex]) {
+              const epTitle = episodes[currentEpisodeIndex].title.replace(/第|集/g, '').trim();
+              pageTitle = `${currentMovie.vod_name} 第${epTitle}集 - 在线观看 - CineStream AI`;
+          }
+
           const desc = currentMovie.vod_content 
               ? currentMovie.vod_content.replace(/<[^>]+>/g, '').slice(0, 150) + '...'
               : `在线观看${currentMovie.vod_name}，主演：${currentMovie.vod_actor}`;
           
+          const epDesc = episodes.length > 0 && currentEpisodeIndex >= 0
+              ? `正在播放${currentMovie.vod_name}第${episodes[currentEpisodeIndex].title.replace(/第|集/g, '')}集。${desc}`
+              : desc;
+
           updateSEO(
-              title,
-              desc,
-              `${currentMovie.vod_name},${currentMovie.vod_actor},${currentMovie.vod_director},在线观看,免费高清`,
+              pageTitle,
+              epDesc,
+              `${currentMovie.vod_name},${currentMovie.vod_actor},${currentMovie.vod_director},在线观看,免费高清,第${currentEpisodeIndex+1}集`,
               currentMovie.vod_pic,
               {
                   "@context": "https://schema.org",
@@ -591,11 +601,15 @@ const App: React.FC = () => {
                   "director": { "@type": "Person", "name": currentMovie.vod_director },
                   "actor": currentMovie.vod_actor.split(',').map(a => ({ "@type": "Person", "name": a.trim() })),
                   "datePublished": currentMovie.vod_year,
-                  "description": desc
+                  "description": desc,
+                  "potentialAction": {
+                      "@type": "WatchAction",
+                      "target": window.location.href
+                  }
               }
           );
       }
-  }, [location.pathname, currentMovie]);
+  }, [location.pathname, currentMovie, episodes, currentEpisodeIndex]);
 
   // Initialize Home Data
   useEffect(() => {
