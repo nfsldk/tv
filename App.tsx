@@ -25,6 +25,50 @@ const normalizeTitle = (str: string) => {
     return str.replace(/\s+/g, '').replace(/[：:,.，。!！?？]/g, '').toLowerCase();
 };
 
+// Helper function to update SEO metadata
+const updateSEO = (title: string, description: string, keywords: string, image?: string, jsonLd?: object) => {
+    document.title = title;
+    
+    const setMeta = (name: string, content: string) => {
+        let element = document.querySelector(`meta[name="${name}"]`);
+        if (!element) {
+            element = document.createElement('meta');
+            element.setAttribute('name', name);
+            document.head.appendChild(element);
+        }
+        element.setAttribute('content', content);
+    };
+
+    const setOg = (property: string, content: string) => {
+        let element = document.querySelector(`meta[property="${property}"]`);
+        if (!element) {
+            element = document.createElement('meta');
+            element.setAttribute('property', property);
+            document.head.appendChild(element);
+        }
+        element.setAttribute('content', content);
+    };
+
+    setMeta('description', description);
+    setMeta('keywords', keywords);
+    
+    setOg('og:title', title);
+    setOg('og:description', description);
+    if (image) setOg('og:image', image);
+
+    // JSON-LD Structured Data
+    if (jsonLd) {
+        let script = document.querySelector('#json-ld');
+        if (!script) {
+            script = document.createElement('script');
+            script.id = 'json-ld';
+            script.setAttribute('type', 'application/ld+json');
+            document.head.appendChild(script);
+        }
+        script.textContent = JSON.stringify(jsonLd);
+    }
+};
+
 // --- URL Mapping Configurations ---
 const URL_TO_TAB: Record<string, string> = {
     '': 'home',
@@ -501,6 +545,57 @@ const App: React.FC = () => {
   }>({ movies: [], series: [], shortDrama: [], anime: [], variety: [] });
 
   const [heroItems, setHeroItems] = useState<VodItem[]>([]);
+
+  // SEO Management Logic
+  useEffect(() => {
+      // 1. Default SEO (Home)
+      if (location.pathname === '/') {
+          updateSEO(
+              'CineStream AI - 免费高清影视 | 智能P2P加速',
+              'CineStream AI - 您的智能免费影视库。提供海量高清电影、电视剧、动漫和综艺在线观看，支持智能P2P加速与AI助手互动。',
+              '免费电影,高清影视,在线观看,CineStream,美剧,韩剧,动漫,综艺,P2P加速'
+          );
+      }
+      // 2. Category Pages
+      else if (['/dianying', '/dianshiju', '/dongman', '/zongyi'].includes(location.pathname)) {
+          const categoryNames: Record<string, string> = {
+              '/dianying': '电影',
+              '/dianshiju': '电视剧',
+              '/dongman': '动漫',
+              '/zongyi': '综艺'
+          };
+          const name = categoryNames[location.pathname];
+          updateSEO(
+              `${name}频道 - CineStream AI`,
+              `CineStream为您提供最新最热的${name}在线观看，海量高清资源，每日更新。`,
+              `${name},在线观看,免费${name},CineStream`
+          );
+      }
+      // 3. Player Page
+      else if (location.pathname.startsWith('/play/') && currentMovie) {
+          const title = `${currentMovie.vod_name} (${currentMovie.vod_year}) - 在线观看 - CineStream AI`;
+          const desc = currentMovie.vod_content 
+              ? currentMovie.vod_content.replace(/<[^>]+>/g, '').slice(0, 150) + '...'
+              : `在线观看${currentMovie.vod_name}，主演：${currentMovie.vod_actor}`;
+          
+          updateSEO(
+              title,
+              desc,
+              `${currentMovie.vod_name},${currentMovie.vod_actor},${currentMovie.vod_director},在线观看,免费高清`,
+              currentMovie.vod_pic,
+              {
+                  "@context": "https://schema.org",
+                  "@type": "Movie",
+                  "name": currentMovie.vod_name,
+                  "image": currentMovie.vod_pic,
+                  "director": { "@type": "Person", "name": currentMovie.vod_director },
+                  "actor": currentMovie.vod_actor.split(',').map(a => ({ "@type": "Person", "name": a.trim() })),
+                  "datePublished": currentMovie.vod_year,
+                  "description": desc
+              }
+          );
+      }
+  }, [location.pathname, currentMovie]);
 
   // Initialize Home Data
   useEffect(() => {
