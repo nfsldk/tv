@@ -17,11 +17,6 @@ const NavIcons = {
     Variety: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>,
 };
 
-// Helper to remove spaces and punctuation for comparison
-const normalizeTitle = (str: string) => {
-    return str.replace(/\s+/g, '').replace(/[：:,.，。!！?？]/g, '').toLowerCase();
-};
-
 // Helper function to update SEO metadata
 const updateSEO = (title: string, description: string, keywords: string, image?: string, jsonLd?: object) => {
     document.title = title;
@@ -656,7 +651,10 @@ const App: React.FC = () => {
               : `在线观看${currentMovie.vod_name}，主演：${currentMovie.vod_actor}`;
           const shortDesc = plainDesc.slice(0, 150) + (plainDesc.length > 150 ? '...' : '');
           
-          const keywords = [
+          const description = `CineStream AI为您提供${currentMovie.vod_name}免费高清在线观看，${currentMovie.vod_name}剧情介绍：${shortDesc}`;
+
+          // Keywords Strategy
+          const keywordList = [
               currentMovie.vod_name,
               currentMovie.vod_actor?.split(',').slice(0, 3).join(','),
               currentMovie.vod_director,
@@ -673,7 +671,7 @@ const App: React.FC = () => {
 
           updateSEO(
               pageTitle,
-              shortDesc,
+              description,
               keywords,
               currentMovie.vod_pic,
               {
@@ -775,46 +773,33 @@ const App: React.FC = () => {
               fetchDoubanData(item.vod_name, item.vod_id);
 
               // GENERATE CLEAN SEARCH QUERIES
-              const queries = new Set<string>();
-              
-              // A. Original Name
-              queries.add(item.vod_name);
-
-              // B. Remove Year: "Movie (2024)" -> "Movie"
-              const nameNoYear = item.vod_name.replace(/[（\(]\d{4}[）\)]/g, '').trim();
-              if(nameNoYear !== item.vod_name) queries.add(nameNoYear);
-
-              // C. Remove Season/Episode: "Series S01" -> "Series"
-              const nameNoSeason = nameNoYear.replace(/第.+季|Season\s*\d+|S\d+|集/gi, '').trim();
-              if(nameNoSeason && nameNoSeason.length > 1) queries.add(nameNoSeason);
-              
-              // D. Pure Text: Remove punctuation
-              const namePure = nameNoSeason.replace(/[：:,.，。!！?？\s]/g, '');
-              if(namePure && namePure.length > 1) queries.add(namePure);
+              // Aggressive cleaning to ensure CMS match
+              const rawName = item.vod_name;
+              // Remove Year (2024), Season (Season 1/第1季), Punctuation
+              const cleanName = rawName
+                  .replace(/[（\(]\d{4}[）\)]/g, '') // Remove Year
+                  .replace(/第.+?季|Season\s*\d+|S\d+/gi, '') // Remove Season
+                  .replace(/集/g, '') // Remove "Episode" char if trailing
+                  .replace(/[：:,.，。!！?？\s]/g, ' ') // Replace punctuation with space
+                  .trim();
 
               let foundVideo: VodItem | null = null;
-
-              // Waterfall Search: Try queries from most specific to generic
-              for (const q of Array.from(queries)) {
-                  if(!q) continue;
-                  const res = await searchMovies(q);
-                  if (res.list && res.list.length > 0) {
-                      // Found something!
-                      // Simple heuristic: pick the first one or logic match
-                      // For now, auto-picking the first result is better than "No Result" page.
-                      foundVideo = res.list[0] as VodItem;
-                      break; 
-                  }
+              
+              // Search using the cleanest possible name
+              const res = await searchMovies(cleanName);
+              if (res.list && res.list.length > 0) {
+                  // Found something! Just pick the first one.
+                  // CMS search usually ranks exact matches first.
+                  foundVideo = res.list[0] as VodItem;
               }
 
               if (foundVideo) {
-                  // SUCCESS: Bridge successful, go to player
-                  // We use the CMS ID here
+                  // SUCCESS: Bridge successful, go to player with CMS ID
                   navigate(`/play/${foundVideo.vod_id}`);
               } else {
-                  // FAILURE: No match found in CMS after all tries
-                  // Go to search page with the cleanest possible name so user can manually try
-                  triggerSearch(nameNoYear || item.vod_name);
+                  // FAILURE: No match found in CMS after cleaning
+                  // Go to search page with the CLEANED name so user has a better chance of manual finding
+                  triggerSearch(cleanName || item.vod_name);
               }
 
           } catch (e) {
