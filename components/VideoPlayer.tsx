@@ -130,7 +130,6 @@ const robustFetch = async (url: string, options: RequestInit = {}) => {
             return await strategy();
         } catch (e) {
             lastError = e;
-            // console.warn('Fetch strategy failed, trying next...', e);
         }
     }
     throw lastError || new Error('All fetch strategies failed');
@@ -138,13 +137,11 @@ const robustFetch = async (url: string, options: RequestInit = {}) => {
 
 const transformDanmaku = (comments: any[]) => {
     if (!Array.isArray(comments)) return [];
-    console.log(`[Danmaku] Transforming ${comments.length} comments.`);
     
     return comments.map((item: any) => {
         if (!item || typeof item !== 'object') return null;
 
         // DandanPlay format p="time,mode,color,cid"
-        // Also handling potential slight variations or missing p attributes safely
         const pStr = String(item.p || '');
         const parts = pStr.split(',');
         
@@ -165,14 +162,12 @@ const transformDanmaku = (comments: any[]) => {
         let color = '#FFFFFF';
         if (!isNaN(colorInt)) {
             try {
-                // Ensure strictly 6 hex digits
                 const hex = (colorInt & 0xFFFFFF).toString(16).toUpperCase().padStart(6, '0');
                 color = `#${hex}`;
             } catch (e) { /* fallback to white */ }
         }
 
         // 4. Text
-        // Support 'm', 'message', or 'text' keys
         const text = String(item.m || item.message || item.text || '');
         if (!text) return null;
         
@@ -197,19 +192,17 @@ const fetchDanmaku = async (title: string, episodeIndex: number, videoUrl: strin
         .trim();
     
     const episodeNum = episodeIndex + 1;
-    console.log(`[Danmaku] Starting Waterfall Search for: "${cleanTitle}" Ep${episodeNum}`);
+    console.log(`[Danmaku] Searching for: "${cleanTitle}" Ep${episodeNum}`);
 
-    let episodeId: number | null = null;
-
-    // --- Strategy 1: Search Episodes (Prioritize Precise Matching) ---
     try {
-        console.log('[Danmaku] Strategy 1: Search Episodes');
         const searchUrl = `${API_SEARCH_EPISODES}?anime=${encodeURIComponent(cleanTitle)}`;
         const res = await robustFetch(searchUrl);
         const data = await res.json();
         
+        let episodeId: number | null = null;
+
         if (data.animes && Array.isArray(data.animes)) {
-            // Sort by relevance to title
+            // Sort by relevance
             const scoredAnimes = data.animes.map((anime: any) => {
                 let score = 0;
                 const animeTitle = (anime.animeTitle || '').toLowerCase();
@@ -217,8 +210,6 @@ const fetchDanmaku = async (title: string, episodeIndex: number, videoUrl: strin
 
                 if (animeTitle === targetTitle) score += 100;
                 else if (animeTitle.includes(targetTitle)) score += 50;
-                
-                if (anime.episodes && anime.episodes.length > episodeIndex) score += 20;
                 
                 return { ...anime, score };
             }).sort((a: any, b: any) => b.score - a.score);
@@ -230,14 +221,15 @@ const fetchDanmaku = async (title: string, episodeIndex: number, videoUrl: strin
                 // Regex patterns for episode number extraction
                 const regexes = [
                     /(?:第|EP|E|Vol\.?|Episode)\s*0*(\d+)/i, // Matches: 第1集, EP01
-                    /[【\[]\s*0*(\d+)\s*[】\]]/, // Matches: [01], 【01】
-                    /^\s*0*(\d+)\s*$/, // Matches: 1, 01 (Exact match)
-                    /\s+0*(\d+)\s+/, // Matches: " 01 " (Number surrounded by spaces)
+                    /^\s*0*(\d+)\s*$/, // Matches: 1, 01
+                    /\s+0*(\d+)\s+/, // Matches: " 01 "
                 ];
 
                 const targetEp = anime.episodes.find((ep: any) => {
-                    const t = ep.episodeTitle || '';
-                    
+                    let t = ep.episodeTitle || '';
+                    // CLEAN UP TITLE: Remove [xxx] or 【xxx】 tags which might interfere
+                    t = t.replace(/[【\[].*?[】\]]/g, '').trim();
+
                     // 1. Try Regex matching
                     for (const r of regexes) {
                         const m = t.match(r);
@@ -245,13 +237,6 @@ const fetchDanmaku = async (title: string, episodeIndex: number, videoUrl: strin
                             return true;
                         }
                     }
-                    
-                    // 2. Try Chinese specific format "第 xx 集"
-                    const chineseMatch = t.match(/第\s*(\d+)\s*集/);
-                    if (chineseMatch && parseInt(chineseMatch[1], 10) === episodeNum) {
-                        return true;
-                    }
-
                     return false;
                 });
 
@@ -262,40 +247,30 @@ const fetchDanmaku = async (title: string, episodeIndex: number, videoUrl: strin
                 }
             }
 
-            // Fallback: Index-based match if regex failed for all
+            // Fallback: Index-based match
             if (!episodeId && scoredAnimes.length > 0) {
-                // Try the highest scored anime first for index match
                 const bestAnime = scoredAnimes[0];
-                if (bestAnime.episodes && bestAnime.episodes.length > episodeIndex) {
-                    // Only trust index match if title is somewhat close
-                    if (bestAnime.score > 50) {
-                        episodeId = bestAnime.episodes[episodeIndex].episodeId;
-                        console.log(`[Danmaku] Found via Index Fallback in "${bestAnime.animeTitle}": Episode ID ${episodeId}`);
-                    }
+                if (bestAnime.episodes && bestAnime.episodes.length > episodeIndex && bestAnime.score > 50) {
+                    episodeId = bestAnime.episodes[episodeIndex].episodeId;
+                    console.log(`[Danmaku] Fallback Index in "${bestAnime.animeTitle}": Episode ID ${episodeId}`);
                 }
             }
         }
-    } catch (e) {
-        console.warn('[Danmaku] Strategy 1 failed', e);
-    }
 
-    // Fetch comments if ID found
-    if (episodeId) {
-        try {
-            console.log(`[Danmaku] Fetching comments for Episode ID: ${episodeId}`);
-            // Force format=json and get related comments
+        if (episodeId) {
             const commentUrl = `${API_COMMENT}/${episodeId}?withRelated=true&format=json`;
-            const res = await robustFetch(commentUrl);
-            const data = await res.json();
+            const cRes = await robustFetch(commentUrl);
+            const cData = await cRes.json();
             
-            // Check for both 'comments' and legacy formats
-            const rawComments = data.comments || data;
+            const rawComments = cData.comments || cData;
             if (rawComments) {
-                return transformDanmaku(rawComments);
+                const comments = transformDanmaku(rawComments);
+                console.log(`[Danmaku] Loaded ${comments.length} items`);
+                return comments;
             }
-        } catch(e) {
-             console.error('[Danmaku] Failed to fetch comments', e);
         }
+    } catch (e) {
+        console.warn('[Danmaku] Fetch failed', e);
     }
     
     return [];
@@ -387,7 +362,13 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
           },
           plugins: [
               artplayerPluginDanmuku({
-                  danmuku: () => fetchDanmaku(title || '', episodeIndex, url),
+                  danmuku: async () => {
+                      const data = await fetchDanmaku(title || '', episodeIndex, url);
+                      if (data.length > 0 && artRef.current) {
+                          artRef.current.notice.show = `弹幕加载成功: ${data.length}条`;
+                      }
+                      return data;
+                  },
                   speed: 5,
                   opacity: 1,
                   fontSize: 25,
@@ -598,7 +579,7 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
             .art-danmuku-control, .art-control-danmuku { display: none !important; }
             @media (max-width: 768px) {
                 .art-controls .art-control { padding: 0 2px !important; }
-                .art-control-volume, .art-control-fullscreen-web { display: none !important; }
+                .art-control-volume, .art-control-fullscreenWeb { display: none !important; }
                 .art-time { font-size: 12px !important; padding: 0 5px !important; }
             }
           `}</style>
