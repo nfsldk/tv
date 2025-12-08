@@ -6,7 +6,7 @@ const API_BASE = 'https://caiji.dyttzyapi.com/api.php/provide/vod';
 /**
  * Robust Fetch Utility with Timeout and Retries
  */
-const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = 5000) => {
+const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = 15000) => {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
     try {
@@ -21,53 +21,100 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout 
 
 /**
  * Generic fetcher for JSON APIs (CMS)
- * Optimized for CN Network: Try Direct First -> AllOrigins Fallback
+ * Strategy: Direct -> CorsProxy -> AllOrigins -> CodeTabs -> ThingProxy
  */
 const fetchWithProxy = async (params: URLSearchParams): Promise<ApiResponse> => {
   const targetUrl = `${API_BASE}?${params.toString()}`;
   
-  // 1. Try Direct Fetch (Most reliable if CMS supports CORS)
-  try {
-      const response = await fetchWithTimeout(targetUrl, {}, 8000);
-      if (response.ok) {
-          const data = await response.json();
-          if (data && (data.code === 1 || Array.isArray(data.list))) {
-              return data;
+  // Define strategies
+  const strategies = [
+      // 1. Direct Fetch (Fastest, but often blocked by CORS)
+      async () => {
+          const res = await fetchWithTimeout(targetUrl, {}, 5000);
+          if (res.ok) {
+              const data = await res.json();
+              if (data && (data.code === 1 || Array.isArray(data.list))) return data;
           }
+          throw new Error('Direct fetch failed');
+      },
+      // 2. CorsProxy.io (Standard proxy)
+      async () => {
+          const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+          const res = await fetchWithTimeout(proxyUrl, {}, 10000);
+          if (res.ok) {
+              const data = await res.json();
+              if (data && (data.code === 1 || Array.isArray(data.list))) return data;
+          }
+          throw new Error('CorsProxy failed');
+      },
+      // 3. AllOrigins Raw (Reliable)
+      async () => {
+          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+          const res = await fetchWithTimeout(proxyUrl, {}, 10000);
+          if (res.ok) {
+              const data = await res.json();
+              if (data && (data.code === 1 || Array.isArray(data.list))) return data;
+          }
+          throw new Error('AllOrigins failed');
+      },
+      // 4. CodeTabs (Backup)
+      async () => {
+          const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`;
+          const res = await fetchWithTimeout(proxyUrl, {}, 10000);
+          if (res.ok) {
+              const data = await res.json();
+              if (data && (data.code === 1 || Array.isArray(data.list))) return data;
+          }
+          throw new Error('CodeTabs failed');
+      },
+      // 5. ThingProxy (Last resort)
+      async () => {
+          const proxyUrl = `https://thingproxy.freeboard.io/fetch/${targetUrl}`;
+          const res = await fetchWithTimeout(proxyUrl, {}, 10000);
+          if (res.ok) {
+              const data = await res.json();
+              if (data && (data.code === 1 || Array.isArray(data.list))) return data;
+          }
+          throw new Error('ThingProxy failed');
       }
-  } catch (e) {
-      console.warn("Direct CMS fetch failed, trying proxy...", e);
+  ];
+
+  // Execute strategies sequentially
+  for (const strategy of strategies) {
+      try {
+          return await strategy();
+      } catch (e) {
+          // console.warn('Fetch strategy failed, trying next...');
+      }
   }
 
-  // 2. Fallback: AllOrigins (Raw) - Good for JSON
-  try {
-      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
-      const response = await fetchWithTimeout(proxyUrl, {}, 6000);
-      if (response.ok) {
-          const data = await response.json();
-          if (data && (data.code === 1 || Array.isArray(data.list))) {
-              return data;
-          }
-      }
-  } catch (e) {
-      console.error("Proxy fetch failed", e);
-  }
-
-  throw new Error('Network Error: Unable to fetch data from CMS.');
+  throw new Error('Network Error: Unable to fetch data from CMS via any proxy.');
 };
 
 /**
  * Helper to fetch HTML content (for Douban scraping)
  */
 const fetchHtmlWithProxy = async (url: string): Promise<string | null> => {
-    try {
-        // Use AllOrigins JSONP for text content (avoiding CORS issues on text/html)
-        const res = await fetchWithTimeout(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`, {}, 5000);
-        if (res.ok) {
+    const strategies = [
+        async () => {
+            const res = await fetchWithTimeout(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`, {}, 5000);
+            if (!res.ok) throw new Error('Err');
             const data = await res.json();
-            return data.contents;
+            return data.contents; 
+        },
+        async () => {
+            const res = await fetchWithTimeout(`https://corsproxy.io/?${encodeURIComponent(url)}`, {}, 5000);
+            if (!res.ok) throw new Error('Err');
+            return await res.text();
         }
-    } catch (e) { /* ignore */ }
+    ];
+
+    for (const strategy of strategies) {
+        try {
+            const html = await strategy();
+            if (html && html.length > 500) return html;
+        } catch (e) { /* ignore */ }
+    }
     return null;
 };
 
