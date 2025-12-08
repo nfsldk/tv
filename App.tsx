@@ -759,14 +759,20 @@ const App: React.FC = () => {
           if (detail) {
               const parsedEps = parseEpisodes(detail.vod_play_url, detail.vod_play_from);
               if (parsedEps.length > 0) {
+                  // 1. Set initial CMS detail immediately
                   setCurrentMovie(detail);
                   setEpisodes(parsedEps);
                   setCurrentEpisodeIndex(0);
                   window.scrollTo({ top: 0, behavior: 'smooth' });
+
+                  // 2. Fetch and merge Douban data (Cast, Recs, etc.)
                   enrichVodDetail(detail).then(updates => {
                       if (updates) {
                           setCurrentMovie(prev => {
-                              if (prev && prev.vod_id === detail.vod_id) return { ...prev, ...updates };
+                              // Only update if the user is still on the same movie
+                              if (prev && prev.vod_id === detail.vod_id) {
+                                  return { ...prev, ...updates };
+                              }
                               return prev;
                           });
                       }
