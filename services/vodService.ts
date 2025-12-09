@@ -161,7 +161,6 @@ export const getHomeSections = async () => {
     const isCriticalEmpty = movies.length === 0 && series.length === 0;
     
     if (isCriticalEmpty) {
-        console.warn("Douban API unreachable, using internal fallback data.");
         return {
             movies: FALLBACK_MOVIES,
             series: FALLBACK_SERIES, 
@@ -298,6 +297,7 @@ export const parseAllSources = (detail: VodDetail): PlaySource[] => {
     const urlArray = detail.vod_play_url.split('$$$');
     
     // Resolve Source Name from API URL
+    // This ensures we use the name the user provided in settings
     let sourceName = '默认源';
     if (detail.api_url) {
         const sources = getVodSources();
@@ -313,12 +313,13 @@ export const parseAllSources = (detail: VodDetail): PlaySource[] => {
         const urlStr = urlArray[idx];
         if (!urlStr) return;
 
-        // STRICT FILTER: ONLY KEEP M3U8 SOURCES
-        // We check if the code explicitly contains m3u8 OR if the content is truly m3u8
-        // Usually 'vod_play_from' codes are like 'ikm3u8', 'ffm3u8'. 
-        // Some APIs use 'm3u8' directly.
-        // We will filter by the code name containing 'm3u8' to be safe and match user request "Only keep m3u8".
-        if (!code.toLowerCase().includes('m3u8')) return;
+        // FILTER: Keep M3U8 sources.
+        // We accept if the code explicitly mentions m3u8 OR if the content URL contains .m3u8
+        // This fixes the issue where some custom APIs might name the source "1080p" or "official" without "m3u8" in the tag.
+        const isM3u8Code = code.toLowerCase().includes('m3u8');
+        const isM3u8Content = urlStr.includes('.m3u8');
+        
+        if (!isM3u8Code && !isM3u8Content) return;
         
         const episodes: Episode[] = [];
         const lines = urlStr.split('#');
@@ -327,8 +328,17 @@ export const parseAllSources = (detail: VodDetail): PlaySource[] => {
             let title = parts.length > 1 ? parts[0] : `第 ${epIdx + 1} 集`;
             const url = parts.length > 1 ? parts[1] : parts[0];
             
-            // Clean up title if it accidentally picked up the source name or generic M3U8 label
-            if (title === code || title.toLowerCase() === 'm3u8' || title.toLowerCase() === 'mp4' || title === sourceName) {
+            // Clean up title:
+            // 1. If title matches source code/name/m3u8/mp4
+            // 2. If title looks like a URL (starts with http) - Fix for APIs that return only URLs
+            if (
+                title === code || 
+                title.toLowerCase() === 'm3u8' || 
+                title.toLowerCase() === 'mp4' || 
+                title === sourceName ||
+                title.startsWith('http') ||
+                title.startsWith('//')
+            ) {
                 title = `第 ${epIdx + 1} 集`;
             }
 
@@ -339,18 +349,12 @@ export const parseAllSources = (detail: VodDetail): PlaySource[] => {
         });
         
         if (episodes.length > 0) {
-            // Use the Source Name defined in Settings (api name)
-            // If we have multiple m3u8 sources from the SAME API, we might need to distinguish them, 
-            // but usually a single API returns one m3u8 set per movie.
-            // If the user adds "Official", we use "Official".
-            
-            // Note: If an API returns multiple m3u8 formats (e.g. 'ffm3u8' and 'lzm3u8'), 
-            // we should probably append the code to distinguish, unless the user strictly wants the API Name.
-            // The prompt says "Resource name use name: e.g. Official".
-            // We will use Source Name. If collision (multiple groups), we append code.
-            
+            // Check for duplicates (e.g. if one API returns multiple m3u8 playlists)
             let finalName = sourceName;
             const isDuplicate = sources.some(s => s.name === sourceName);
+            
+            // If the same source name exists (e.g. from same API), append the code to distinguish
+            // But if it's the first time we see this source name, we keep it clean as the user defined.
             if (isDuplicate) {
                  finalName = `${sourceName} (${code})`;
             }
@@ -373,14 +377,12 @@ export const enrichVodDetail = async (detail: VodDetail): Promise<Partial<VodDet
         const doubanData = await fetchDoubanData(detail.vod_name, detail.vod_douban_id);
         if (doubanData) {
             const updates: Partial<VodDetail> = {};
+            // Basic Info
             if (doubanData.score) updates.vod_score = doubanData.score;
             if (doubanData.pic) updates.vod_pic = doubanData.pic;
-            if (doubanData.recs) updates.vod_recs = doubanData.recs;
-            if (doubanData.actorsExtended) updates.vod_actors_extended = doubanData.actorsExtended;
-            
-            // Ensure content/synopsis is also updated
             if (doubanData.content) updates.vod_content = doubanData.content;
             
+            // Comprehensive Details
             if (doubanData.director) updates.vod_director = doubanData.director;
             if (doubanData.actor) updates.vod_actor = doubanData.actor;
             if (doubanData.writer) updates.vod_writer = doubanData.writer;
@@ -393,6 +395,10 @@ export const enrichVodDetail = async (detail: VodDetail): Promise<Partial<VodDet
             if (doubanData.lang) updates.vod_lang = doubanData.lang;
             if (doubanData.tag) updates.type_name = doubanData.tag;
             
+            // Extended Data
+            if (doubanData.recs) updates.vod_recs = doubanData.recs;
+            if (doubanData.actorsExtended) updates.vod_actors_extended = doubanData.actorsExtended;
+            
             return updates;
         }
     } catch (e) { }
@@ -402,11 +408,13 @@ export const enrichVodDetail = async (detail: VodDetail): Promise<Partial<VodDet
 export const fetchDoubanData = async (keyword: string, doubanId?: string | number): Promise<any | null> => {
   try {
     let targetId = doubanId;
-    if (!targetId || targetId === '0') {
+    // If no ID provided, or ID is invalid, search for it
+    if (!targetId || targetId === '0' || targetId === 0) {
         const searchUrl = `https://movie.douban.com/j/subject_suggest?q=${encodeURIComponent(keyword)}`;
         const data = await fetchWithProxy(searchUrl);
         if (Array.isArray(data) && data.length > 0) targetId = data[0].id;
     }
+    
     if (!targetId) return null;
 
     const pageUrl = `https://movie.douban.com/subject/${targetId}/`;
@@ -419,7 +427,7 @@ export const fetchDoubanData = async (keyword: string, doubanId?: string | numbe
 
     const result: any = { doubanId: String(targetId) };
 
-    // 1. Try JSON-LD (Best Source)
+    // 1. Try JSON-LD (Best Source for basic info)
     const script = doc.querySelector('script[type="application/ld+json"]');
     if (script) {
         try {
@@ -435,20 +443,22 @@ export const fetchDoubanData = async (keyword: string, doubanId?: string | numbe
     }
 
     // 2. Fallback/Supplement from DOM (#info block)
+    // This is crucial for fields often missing in JSON-LD like Writer, Alias, IMDb, Region
     const info = doc.getElementById('info');
     if (info) {
         const getField = (label: string) => {
+             // Find the label span (e.g. <span class="pl">导演</span>)
              const labelEl = Array.from(info.querySelectorAll('span.pl')).find(el => el.textContent?.includes(label));
              if (labelEl) {
-                 // Text node immediately after
-                 if (labelEl.nextSibling && labelEl.nextSibling.nodeType === 3) {
-                     return labelEl.nextSibling.textContent?.trim();
-                 }
-                 // Or structured like span.pl + span.attrs
+                 // The value is usually in the text node immediately following, or in sibling elements until the next <br> or <span.pl>
                  let content = '';
                  let curr = labelEl.nextSibling;
-                 // Gather text until next label or break
-                 while(curr && (curr.nodeType === 3 || (curr.nodeType === 1 && !(curr as Element).classList.contains('pl')))) {
+                 
+                 while(curr) {
+                     // Stop if we hit the next label (span.pl) or a break
+                     if (curr.nodeName === 'BR') break;
+                     if (curr.nodeType === 1 && (curr as Element).classList.contains('pl')) break;
+                     
                      content += curr.textContent;
                      curr = curr.nextSibling;
                  }
@@ -462,17 +472,25 @@ export const fetchDoubanData = async (keyword: string, doubanId?: string | numbe
         if (!result.actor) result.actor = getField('主演');
         if (!result.type_name) result.type_name = getField('类型');
         
+        // These fields are almost always in #info
         result.area = getField('制片国家/地区');
         result.lang = getField('语言');
         result.alias = getField('又名');
         result.imdb = getField('IMDb');
         result.episodeCount = getField('集数');
-        if (!result.duration) result.duration = getField('单集片长') || getField('片长');
+        
+        const duration = getField('单集片长') || getField('片长');
+        if (!result.duration && duration) result.duration = duration;
+        
+        if (!result.pubdate) result.pubdate = getField('上映日期') || getField('首播');
     }
     
-    // 3. Synopsis
+    // 3. Synopsis (Robust selection)
     const summary = doc.querySelector('span[property="v:summary"]');
-    if (summary) {
+    const hiddenSummary = doc.querySelector('span.all.hidden');
+    if (hiddenSummary) {
+         result.content = hiddenSummary.textContent?.trim().replace(/<br\s*\/?>/gi, '\n').replace(/\s+/g, ' ');
+    } else if (summary) {
         result.content = summary.textContent?.trim().replace(/<br\s*\/?>/gi, '\n').replace(/\s+/g, ' ');
     }
 
@@ -489,6 +507,7 @@ export const fetchDoubanData = async (keyword: string, doubanId?: string | numbe
     }
 
     // 6. Cast Images (Visual List) - #celebrities
+    // This is the "Main Actors" list with images
     const celebrityItems = doc.querySelectorAll('#celebrities .celebrity');
     if (celebrityItems.length > 0) {
         result.actorsExtended = Array.from(celebrityItems).slice(0, 10).map(el => {
@@ -496,12 +515,19 @@ export const fetchDoubanData = async (keyword: string, doubanId?: string | numbe
             const role = el.querySelector('.role')?.textContent?.trim() || '';
             let pic = el.querySelector('.avatar')?.getAttribute('style')?.match(/url\((.*?)\)/)?.[1] || '';
             if (!pic) pic = el.querySelector('img')?.getAttribute('src') || '';
+            
+            // Clean up URLs
+            if (pic && !pic.startsWith('http')) {
+                if (pic.startsWith('//')) pic = 'https:' + pic;
+            }
+            
             return { name, role, pic: pic.replace(/s_ratio_poster|m(?=\/public)/, 'l') };
         }).filter(a => a.name);
     }
 
     // 7. Recommendations - #recommendations
-    const recItems = doc.querySelectorAll('.recommendations-bd dl');
+    // "Guess You Like"
+    const recItems = doc.querySelectorAll('#recommendations dl, .recommendations-bd dl');
     if (recItems.length > 0) {
         result.recs = Array.from(recItems).slice(0, 10).map(el => {
             const img = el.querySelector('img');
