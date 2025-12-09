@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom'; // Import Router hooks
-import { getHomeSections, searchMovies, getMovieDetail, parseAllSources, enrichVodDetail, fetchDoubanData, fetchCategoryItems, getHistory, addToHistory } from './services/vodService';
+import { getHomeSections, searchDouban, searchCms, getMovieDetail, parseAllSources, enrichVodDetail, fetchDoubanData, fetchCategoryItems, getHistory, addToHistory, removeFromHistory } from './services/vodService';
 import MovieInfoCard from './components/MovieInfoCard';
 import ImageWithFallback from './components/ImageWithFallback';
 import { VodItem, VodDetail, Episode, PlaySource, HistoryItem } from './types';
@@ -304,7 +304,7 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
     );
 };
 
-const HorizontalSection = ({ title, items, id, onItemClick }: { title: string, items: (VodItem | HistoryItem)[], id: string, onItemClick: (item: VodItem) => void }) => {
+const HorizontalSection = ({ title, items, id, onItemClick, onItemContextMenu }: { title: string, items: (VodItem | HistoryItem)[], id: string, onItemClick: (item: VodItem) => void, onItemContextMenu?: (e: React.MouseEvent, item: VodItem) => void }) => {
     const scrollRef = useRef<HTMLDivElement>(null);
     const scroll = (direction: 'left' | 'right') => {
         if (scrollRef.current) {
@@ -332,7 +332,12 @@ const HorizontalSection = ({ title, items, id, onItemClick }: { title: string, i
                       const hasHistory = 'episode_index' in item;
                       
                       return (
-                      <div key={item.vod_id} onClick={() => onItemClick(item)} className="flex-shrink-0 w-28 sm:w-36 md:w-44 cursor-pointer group relative">
+                      <div 
+                        key={item.vod_id} 
+                        onClick={() => onItemClick(item)} 
+                        onContextMenu={(e) => onItemContextMenu && onItemContextMenu(e, item)}
+                        className="flex-shrink-0 w-28 sm:w-36 md:w-44 cursor-pointer group relative"
+                      >
                           <div className="aspect-[2/3] rounded-lg md:rounded-xl overflow-hidden bg-gray-900 border border-white/10 relative shadow-lg group-hover:shadow-brand/20 transition-all duration-300 group-hover:-translate-y-1">
                                <ImageWithFallback src={item.vod_pic || ''} alt={item.vod_name || 'Poster'} searchKeyword={item.vod_name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
                               {item.vod_score && (
@@ -537,11 +542,18 @@ const App: React.FC = () => {
   const [showSidePanel, setShowSidePanel] = useState(true);
   const [sidePanelTab, setSidePanelTab] = useState<'episodes' | 'sources'>('episodes');
   const [isReverseOrder, setIsReverseOrder] = useState(false);
+  
+  // Pagination State for Episodes
+  const [currentEpisodePage, setCurrentEpisodePage] = useState(0);
+  const EPISODES_PER_PAGE = 36;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('home');
   const [showSettings, setShowSettings] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
+
+  // Context Menu State
+  const [contextMenu, setContextMenu] = useState<{ visible: boolean, x: number, y: number, item: VodItem | null }>({ visible: false, x: 0, y: 0, item: null });
   
   const [homeSections, setHomeSections] = useState<{
       movies: VodItem[];
@@ -593,8 +605,29 @@ const App: React.FC = () => {
           const director = currentMovie.vod_director || '';
           const type = currentMovie.type_name || '影视';
           
+          // Enhanced SEO Logic
+          let titleSuffix = '';
+          const isMovie = type === '电影' || episodes.length <= 1;
+
+          if (isMovie) {
+              // For movies, try to get the playback name (often "HD" or similar from the source/title logic)
+              const epTitle = episodes[currentEpisodeIndex]?.title || 'HD';
+              const cleanEpTitle = epTitle.replace(/第|集/g, '').replace(/^0+/, ''); 
+              // Usually movie sources have just 1 episode often named 'HD' or the movie name.
+              // If the episode title is just "1" or "第1集", maybe omit it or use "HD"
+              titleSuffix = ` ${isNaN(Number(cleanEpTitle)) ? cleanEpTitle : 'HD'}`; 
+          } else {
+              // For Series/Anime/Variety, append episode name
+              const epTitle = episodes[currentEpisodeIndex]?.title;
+              if (epTitle) {
+                  const raw = epTitle.replace(/第|集/g, '').replace(/^0+/, '');
+                  const display = isNaN(Number(raw)) ? raw : `第${raw}集`;
+                  titleSuffix = ` ${display}`;
+              }
+          }
+
           updateSEO(
-              `《${currentMovie.vod_name}》免费在线观看_全集高清播放_${type}_CineStream AI`,
+              `《${currentMovie.vod_name}》${titleSuffix}在线观看_全集高清播放_${type}_CineStream AI`,
               `CineStream AI为您提供《${currentMovie.vod_name}》免费高清在线观看，${currentMovie.vod_name}剧情介绍：${rawContent}...`,
               `${currentMovie.vod_name},${currentMovie.vod_name}在线观看,${currentMovie.vod_name}全集,${actors},${director},${type},CineStream AI`,
               currentMovie.vod_pic
@@ -607,7 +640,7 @@ const App: React.FC = () => {
               '搜索,视频搜索,影视搜索,CineStream AI'
            );
       }
-  }, [location.pathname, currentMovie, searchQuery]);
+  }, [location.pathname, currentMovie, searchQuery, currentEpisodeIndex, episodes]);
 
   // Load Watch History on Mount
   useEffect(() => {
@@ -633,6 +666,14 @@ const App: React.FC = () => {
           setWatchHistory(updatedHistory);
       }
   }, [currentEpisodeIndex, currentMovie]);
+
+  // Update current page when episode index changes (auto-switch tab)
+  useEffect(() => {
+    if (currentEpisodeIndex >= 0) {
+      const page = Math.floor(currentEpisodeIndex / EPISODES_PER_PAGE);
+      setCurrentEpisodePage(page);
+    }
+  }, [currentEpisodeIndex]);
 
   const fetchInitial = useCallback(async () => {
        setLoading(true);
@@ -668,6 +709,31 @@ const App: React.FC = () => {
       }
   }, [location.pathname]);
 
+  // Handle Context Menu Actions
+  useEffect(() => {
+    const handleClickOutside = () => setContextMenu({ ...contextMenu, visible: false });
+    window.addEventListener('click', handleClickOutside);
+    return () => window.removeEventListener('click', handleClickOutside);
+  }, [contextMenu]);
+
+  const handleContextMenu = (e: React.MouseEvent, item: VodItem) => {
+      e.preventDefault();
+      setContextMenu({
+          visible: true,
+          x: e.clientX,
+          y: e.clientY,
+          item: item
+      });
+  };
+
+  const handleDeleteHistory = () => {
+      if (contextMenu.item) {
+          const updated = removeFromHistory(contextMenu.item.vod_id);
+          setWatchHistory(updated);
+      }
+      setContextMenu({ ...contextMenu, visible: false });
+  };
+
   const triggerSearch = async (query: string) => {
       if(!query.trim()) return;
       setSearchQuery(query);
@@ -677,35 +743,21 @@ const App: React.FC = () => {
           navigate(TAB_TO_URL['search']);
       }
       try {
-          const data = await searchMovies(query);
-          let results = (data.list || []) as VodItem[];
+          // SEARCH DOUBAN FOR RESULTS LIST
+          const results = await searchDouban(query);
           
-          // --- SMART SORT BY ACTOR/DIRECTOR ---
-          // If the search query matches an actor or director name, prioritize those items.
-          const lowerQuery = query.toLowerCase();
-          results = results.sort((a, b) => {
-              const aActor = (a.vod_actor || '').toLowerCase();
-              const bActor = (b.vod_actor || '').toLowerCase();
-              const aDirector = (a.vod_director || '').toLowerCase();
-              const bDirector = (b.vod_director || '').toLowerCase();
-              const aTitle = (a.vod_name || '').toLowerCase();
-              const bTitle = (b.vod_name || '').toLowerCase();
-
-              const aHasPerson = aActor.includes(lowerQuery) || aDirector.includes(lowerQuery);
-              const bHasPerson = bActor.includes(lowerQuery) || bDirector.includes(lowerQuery);
-
-              // 1. Exact person match priority
-              if (aHasPerson && !bHasPerson) return -1;
-              if (!aHasPerson && bHasPerson) return 1;
-
-              // 2. Exact Title match priority
-              if (aTitle === lowerQuery && bTitle !== lowerQuery) return -1;
-              if (bTitle === lowerQuery && aTitle !== lowerQuery) return 1;
-
+          // Sort results prioritizing Exact Matches
+          const sortedResults = results.sort((a, b) => {
+              const lowerQuery = query.toLowerCase();
+              const aName = a.vod_name.toLowerCase();
+              const bName = b.vod_name.toLowerCase();
+              
+              if (aName === lowerQuery && bName !== lowerQuery) return -1;
+              if (bName === lowerQuery && aName !== lowerQuery) return 1;
               return 0;
           });
           
-          setSearchResults(results);
+          setSearchResults(sortedResults);
       } catch (error) {
           console.error("Search error", error);
       } finally {
@@ -719,50 +771,54 @@ const App: React.FC = () => {
   };
 
   const handleItemClick = async (item: VodItem) => {
-      // If clicking from History, restore source index if available
-      if ('source_index' in item && typeof (item as any).source_index === 'number') {
-           // We will handle source restoration in handleSelectMovie by checking history or localStorage
-           // But actually handleSelectMovie loads fresh detail. We rely on localStorage for episode.
-      }
-
+      // If item has a direct API URL (from History or direct source), play it
       if (item.api_url && item.source !== 'douban') {
           handleSelectMovie(item.vod_id, item.api_url);
           navigate(`/play/${item.vod_id}`);
           return;
       }
-      if (item.source === 'douban' || !item.vod_play_from) {
-          setLoading(true);
-          try {
-              fetchDoubanData(item.vod_name, item.vod_id);
-              const cleanName = item.vod_name
-                  .replace(/[（\(]\d{4}[）\)]/g, '')
-                  .replace(/第.+?季|Season\s*\d+|S\d+/gi, '')
-                  .replace(/集/g, '')
-                  .trim();
-              const queries = [cleanName, item.vod_name];
-              let foundVideo: VodItem | null = null;
-              for (const q of queries) {
-                  if(!q) continue;
-                  const res = await searchMovies(q);
-                  if (res.list && res.list.length > 0) {
-                      foundVideo = res.list[0] as VodItem;
-                      break; 
-                  }
+
+      // If item is from Douban (Search Result or Category), find it in CMS
+      setLoading(true);
+      try {
+          // 1. Fetch Douban details to get cleaner title/year if possible
+          await fetchDoubanData(item.vod_name, item.vod_id);
+          
+          const cleanName = item.vod_name
+              .replace(/[（\(]\d{4}[）\)]/g, '')
+              .replace(/第.+?季|Season\s*\d+|S\d+/gi, '')
+              .replace(/集/g, '')
+              .trim();
+
+          // 2. Search CMS for playback source
+          // Try exact name first, then cleaned name
+          const queries = [item.vod_name, cleanName];
+          let foundVideo: VodItem | null = null;
+          
+          for (const q of queries) {
+              if(!q) continue;
+              const res = await searchCms(q); // Use searchCms to find playable source
+              if (res.list && res.list.length > 0) {
+                  // Try to find exact match if multiple results
+                  const exact = res.list.find((v: any) => v.vod_name === item.vod_name);
+                  foundVideo = (exact || res.list[0]) as VodItem;
+                  break; 
               }
-              if (foundVideo) {
-                  handleSelectMovie(foundVideo.vod_id, foundVideo.api_url);
-                  navigate(`/play/${foundVideo.vod_id}`);
-              } else {
-                  triggerSearch(cleanName || item.vod_name);
-              }
-          } catch (e) {
-              triggerSearch(item.vod_name);
-          } finally {
-              setLoading(false);
           }
-      } else {
-          handleSelectMovie(item.vod_id);
-          navigate(`/play/${item.vod_id}`);
+
+          if (foundVideo) {
+              handleSelectMovie(foundVideo.vod_id, foundVideo.api_url);
+              navigate(`/play/${foundVideo.vod_id}`);
+          } else {
+              // Fallback: Just try to trigger search again or show not found
+              // Ideally, we should show a toast, but for now just navigate to search
+             triggerSearch(cleanName || item.vod_name);
+          }
+      } catch (e) {
+          console.error("Failed to find video source", e);
+          triggerSearch(item.vod_name);
+      } finally {
+          setLoading(false);
       }
   };
 
@@ -840,8 +896,17 @@ const App: React.FC = () => {
   }, [currentEpisodeIndex, episodes]);
 
   const displayEpisodes = useMemo(() => {
-      return isReverseOrder ? [...episodes].reverse() : episodes;
-  }, [episodes, isReverseOrder]);
+      let list = [...episodes];
+      if (isReverseOrder) list.reverse();
+      
+      // Pagination Logic
+      const startIndex = currentEpisodePage * EPISODES_PER_PAGE;
+      const endIndex = startIndex + EPISODES_PER_PAGE;
+      return list.slice(startIndex, endIndex);
+  }, [episodes, isReverseOrder, currentEpisodePage]);
+
+  // Calculate total pages
+  const totalEpisodePages = Math.ceil(episodes.length / EPISODES_PER_PAGE);
 
   const handleTabChange = (tab: string) => {
       const path = TAB_TO_URL[tab];
@@ -869,6 +934,22 @@ const App: React.FC = () => {
           <Suspense fallback={null}>
                <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
           </Suspense>
+
+          {/* Context Menu */}
+          {contextMenu.visible && (
+              <div 
+                  style={{ top: contextMenu.y, left: contextMenu.x }}
+                  className="fixed z-[100] bg-[#1a1f2e] border border-white/10 rounded-lg shadow-2xl py-1 min-w-[120px] animate-fade-in"
+              >
+                  <button 
+                      onClick={handleDeleteHistory}
+                      className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-white/5 hover:text-red-300 flex items-center gap-2"
+                  >
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+                      删除记录
+                  </button>
+              </div>
+          )}
 
           {loading && currentMovie === null && !hasSearched && (
                <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-md flex flex-col items-center justify-center animate-fade-in">
@@ -954,27 +1035,51 @@ const App: React.FC = () => {
                                                   {/* Episode Range / Sort Bar */}
                                                   <div className="flex justify-between items-center px-4 py-2 border-b border-white/5 bg-[#161b26]">
                                                       <span className="text-xs text-gray-400 font-mono">
-                                                          {episodes.length > 0 ? `1-${episodes.length}` : '暂无剧集'}
+                                                          {episodes.length > 0 ? `Total: ${episodes.length}` : '暂无剧集'}
                                                       </span>
-                                                      <button onClick={() => setIsReverseOrder(!isReverseOrder)} className="text-gray-400 hover:text-white p-1 rounded hover:bg-white/5">
+                                                      <button onClick={() => setIsReverseOrder(!isReverseOrder)} className="text-gray-400 hover:text-white p-1 rounded hover:bg-white/5" title="Sort Order">
                                                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 transform rotate-90"><path strokeLinecap="round" strokeLinejoin="round" d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5" /></svg>
                                                       </button>
                                                   </div>
                                                   
+                                                  {/* Tabs for Pagination (Groups of 36) */}
+                                                  {totalEpisodePages > 1 && (
+                                                      <div className="flex gap-2 overflow-x-auto no-scrollbar p-2 border-b border-white/5 bg-[#161b26]">
+                                                          {Array.from({ length: totalEpisodePages }).map((_, idx) => (
+                                                              <button
+                                                                  key={idx}
+                                                                  onClick={() => setCurrentEpisodePage(idx)}
+                                                                  className={`flex-shrink-0 px-3 py-1 text-xs rounded-full border transition-all whitespace-nowrap ${
+                                                                      currentEpisodePage === idx 
+                                                                      ? 'bg-brand/20 text-brand border-brand/50 font-bold' 
+                                                                      : 'bg-[#1e2330] text-gray-400 border-transparent hover:text-white hover:bg-white/10'
+                                                                  }`}
+                                                              >
+                                                                  {idx * EPISODES_PER_PAGE + 1}-{Math.min((idx + 1) * EPISODES_PER_PAGE, episodes.length)}
+                                                              </button>
+                                                          ))}
+                                                      </div>
+                                                  )}
+
                                                   {/* Grid */}
                                                   <div className="p-3 overflow-y-auto custom-scrollbar flex-1">
                                                       <div className="grid grid-cols-4 gap-2">
-                                                          {displayEpisodes.map((ep) => (
+                                                          {displayEpisodes.map((ep) => {
+                                                              const rawTitle = ep.title.replace(/第|集/g, '').replace(/^0+/, '');
+                                                              // Determine display text: if it looks like a number, add prefix/suffix, otherwise keep raw
+                                                              const displayText = !isNaN(Number(rawTitle)) ? `第${rawTitle}集` : (ep.title || `第${ep.index + 1}集`);
+
+                                                              return (
                                                               <button 
                                                                 key={ep.index} 
                                                                 onClick={() => setCurrentEpisodeIndex(ep.index)} 
                                                                 className={`h-9 text-xs rounded transition-all duration-200 border truncate font-medium relative group ${currentEpisodeIndex === ep.index ? 'bg-brand text-black border-brand shadow-[0_0_10px_rgba(34,197,94,0.3)]' : 'bg-[#1e2330] text-gray-400 border-transparent hover:bg-[#252b3b] hover:text-white'}`}
                                                                 title={ep.title}
                                                               >
-                                                                  {ep.title.replace(/第|集/g, '').replace(/^0+/, '') || ep.index + 1}
+                                                                  {displayText}
                                                                   {currentEpisodeIndex === ep.index && <span className="absolute bottom-0.5 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-black rounded-full opacity-50"></span>}
                                                               </button>
-                                                          ))}
+                                                          )})}
                                                       </div>
                                                   </div>
                                               </>
@@ -1034,7 +1139,7 @@ const App: React.FC = () => {
 
                             <div className="flex items-center gap-3 mb-6">
                                 <div className="h-6 w-1 bg-brand rounded-full shadow-[0_0_10px_rgba(34,197,94,0.5)]"></div>
-                                <h3 className="text-xl font-bold text-white tracking-wide">搜索结果</h3>
+                                <h3 className="text-xl font-bold text-white tracking-wide">搜索结果 (Douban)</h3>
                             </div>
 
                             {loading && searchResults.length === 0 ? (
@@ -1047,7 +1152,7 @@ const App: React.FC = () => {
                                         <div key={item.vod_id} onClick={() => handleItemClick(item)} className="group cursor-pointer relative bg-gray-900 rounded-lg overflow-hidden aspect-[2/3] ring-1 ring-white/5 hover:ring-brand hover:shadow-[0_0_20px_rgba(34,197,94,0.15)] transition-all duration-300 hover:-translate-y-1">
                                             <ImageWithFallback src={item.vod_pic || ''} alt={item.vod_name || 'Poster'} searchKeyword={item.vod_name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
                                             <div className="absolute top-0 right-0 p-1.5 z-10">
-                                                <span className="bg-black/60 backdrop-blur-md text-[10px] text-white px-1.5 py-0.5 rounded border border-white/10 shadow-lg">{item.vod_remarks || '高清'}</span>
+                                                {item.vod_score && <span className="bg-black/60 backdrop-blur-md text-[10px] text-white px-1.5 py-0.5 rounded border border-white/10 shadow-lg">{item.vod_score}</span>}
                                             </div>
                                             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent p-2 md:p-3 pt-12">
                                                 <h4 className="text-xs md:text-sm font-bold text-white truncate group-hover:text-brand transition-colors">{item.vod_name}</h4>
@@ -1079,7 +1184,7 @@ const App: React.FC = () => {
                                     
                                     {!loading && (
                                         <>
-                                            <HorizontalSection id="history" title="继续观看" items={watchHistory} onItemClick={handleItemClick} />
+                                            <HorizontalSection id="history" title="继续观看" items={watchHistory} onItemClick={handleItemClick} onItemContextMenu={handleContextMenu} />
 
                                             <HorizontalSection id="movies" title="热门电影" items={homeSections.movies} onItemClick={handleItemClick} />
                                             <HorizontalSection id="series" title="热门剧集" items={homeSections.series} onItemClick={handleItemClick} />

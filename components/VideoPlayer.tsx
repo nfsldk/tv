@@ -182,8 +182,8 @@ const fetchDanmaku = async (title: string, episodeIndex: number, videoUrl: strin
     
     // Improved Cleaning Logic: Keep numbers, remove garbage
     const cleanTitle = title
-        .replace(/(\s*第\s*\d+\s*季)|(\s*[Ss]eason\s*\d+)/gi, ' ') // Remove Season markers gently
-        .replace(/[\(\[\{【](?!Part|Vol|Ep).*?[\)\]\}】]/gi, '') // Remove content in brackets unless it's Part/Vol
+        .replace(/(\s*第\s*\d+\s*季)|(\s*[Ss]eason\s*\d+)/gi, ' ') 
+        .replace(/[\(\[\{【](?!Part|Vol|Ep).*?[\)\]\}】]/gi, '') 
         .replace(/电视剧|动漫|综艺|movie|tv|4k|1080p|hd|国语|完整版/gi, '')
         .trim();
     
@@ -191,9 +191,9 @@ const fetchDanmaku = async (title: string, episodeIndex: number, videoUrl: strin
     console.log(`Searching Danmaku for: [${cleanTitle}] Ep: ${episodeNum}`);
 
     // STRATEGY 1: Match API (Virtual Filename)
-    // This constructs a filename like "[CineStream] Title - 01.mp4" which DandanPlay's matcher usually accepts.
     try {
         const epStr = episodeNum < 10 ? `0${episodeNum}` : `${episodeNum}`;
+        // Standard Dandanplay naming format
         const virtualFileName = `[CineStream] ${cleanTitle} - ${epStr} [Web].mp4`;
         const matchUrl = `${API_MATCH}?fileName=${encodeURIComponent(virtualFileName)}&hash=0&length=0`;
         
@@ -206,7 +206,7 @@ const fetchDanmaku = async (title: string, episodeIndex: number, videoUrl: strin
             return await fetchComments(bestMatch.episodeId);
         }
     } catch (e) {
-        console.warn('Match API failed, falling back to search', e);
+        // console.warn('Match API failed, falling back to search', e);
     }
 
     // STRATEGY 2: Search API (Fallback)
@@ -343,8 +343,13 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
   useEffect(() => {
       if (!containerRef.current || !url) return;
       
+      // Force cleanup of existing instance
       if (artRef.current && artRef.current.destroy) {
-          artRef.current.destroy(false);
+           try {
+              if (artRef.current.mini) artRef.current.mini = false;
+              if (artRef.current.pip) artRef.current.pip = false;
+          } catch(e){}
+          artRef.current.destroy(true);
       }
 
       let hasSkippedHead = false;
@@ -392,15 +397,20 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
           plugins: [
               artplayerPluginDanmuku({
                   danmuku: async () => {
-                      const data = await fetchDanmaku(title || '', episodeIndex, url);
-                      if (artRef.current) {
-                           if (data.length > 0) {
-                               artRef.current.notice.show = `弹幕加载成功: ${data.length}条`;
-                           } else {
-                               // artRef.current.notice.show = '未找到匹配弹幕';
-                           }
+                      try {
+                          const data = await fetchDanmaku(title || '', episodeIndex, url);
+                          if (artRef.current) {
+                               if (data.length > 0) {
+                                   artRef.current.notice.show = `弹幕加载成功: ${data.length}条`;
+                               } else {
+                                   // artRef.current.notice.show = '未找到匹配弹幕';
+                               }
+                          }
+                          return data;
+                      } catch (e) {
+                          console.error("Danmaku error", e);
+                          return [];
                       }
-                      return data;
                   },
                   speed: 10,
                   opacity: 1, 
@@ -585,9 +595,20 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
       });
 
       return () => {
-          if (artRef.current && artRef.current.destroy) {
-              artRef.current.destroy(false);
-              artRef.current = null;
+          if (artRef.current) {
+              // Critical Fix: Explicitly close Mini/PiP/Fullscreen to prevent residuals on unmount
+              try {
+                  if (artRef.current.mini) artRef.current.mini = false;
+                  if (artRef.current.pip) artRef.current.pip = false;
+                  if (artRef.current.fullscreen) artRef.current.fullscreen = false;
+              } catch (e) {
+                   console.warn("Error cleaning up player modes:", e);
+              }
+              
+              if (artRef.current.destroy) {
+                  artRef.current.destroy(true); // true = remove DOM and clean up events
+                  artRef.current = null;
+              }
           }
       };
   }, [url, autoplay, poster, title, episodeIndex]); 

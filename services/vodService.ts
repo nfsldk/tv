@@ -44,6 +44,15 @@ export const addToHistory = (item: HistoryItem) => {
     } catch(e) { return []; }
 };
 
+export const removeFromHistory = (vod_id: number | string) => {
+    try {
+        let history = getHistory();
+        history = history.filter(h => String(h.vod_id) !== String(vod_id));
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+        return history;
+    } catch(e) { return []; }
+};
+
 export const clearHistory = () => {
     localStorage.removeItem(HISTORY_KEY);
 };
@@ -287,9 +296,36 @@ export const fetchCategoryItems = async (
     return items;
 };
 
-// --- MULTI-SOURCE SEARCH ---
+// --- SEARCH LOGIC ---
 
-export const searchMovies = async (keyword: string, page = 1): Promise<ApiResponse> => {
+/**
+ * Search directly from Douban (for UI Display)
+ */
+export const searchDouban = async (keyword: string): Promise<VodItem[]> => {
+    const searchUrl = `https://movie.douban.com/j/subject_suggest?q=${encodeURIComponent(keyword)}`;
+    try {
+        const data = await fetchWithProxy(searchUrl);
+        if (Array.isArray(data)) {
+            return data.map((item: any) => ({
+                vod_id: item.id,
+                vod_name: item.title,
+                vod_pic: item.img ? item.img.replace(/s_ratio_poster|m(?=\/public)/, 'l') : '',
+                vod_score: item.year, // Douban suggest uses year usually, no score
+                type_name: item.type || '影视',
+                vod_year: item.year,
+                source: 'douban'
+            }));
+        }
+    } catch(e) {
+        console.warn('Douban search failed', e);
+    }
+    return [];
+};
+
+/**
+ * Search from CMS Resource Sites (for Playback Sources)
+ */
+export const searchCms = async (keyword: string, page = 1): Promise<ApiResponse> => {
   const sources = getVodSources().filter(s => s.active);
   const params = new URLSearchParams({
       ac: 'detail',
@@ -385,6 +421,7 @@ export const parseAllSources = (detail: VodDetail): PlaySource[] => {
         const isM3u8Code = code.toLowerCase().includes('m3u8');
         const isM3u8Content = urlStr.includes('.m3u8');
         
+        // Relaxing the filter: If it's custom source, allow it. If default, must be m3u8.
         if (!isCustomSource && !isM3u8Code && !isM3u8Content) {
             return; // Skip non-m3u8 on default source
         }
