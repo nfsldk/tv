@@ -296,6 +296,38 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
       getInstance: () => artRef.current
   }));
 
+  // === Custom Auto Mini (PiP) Logic for Mobile Optimization ===
+  useEffect(() => {
+      if (!containerRef.current) return;
+
+      const observer = new IntersectionObserver((entries) => {
+          const entry = entries[0];
+          const art = artRef.current;
+          if (!art) return;
+
+          // If container is visible (at least 30%)
+          if (entry.isIntersecting) {
+              // Automatically return to player if in mini mode
+              if (art.mini) {
+                  art.mini = false;
+              }
+          } 
+          // If container is hidden (scrolled away)
+          else {
+              // Automatically go to mini mode if playing and not already in another mode
+              if (art.playing && !art.pip && !art.fullscreen && !art.mini) {
+                  art.mini = true;
+              }
+          }
+      }, {
+          threshold: 0.3, // Trigger when 30% of the player is visible/hidden
+      });
+
+      observer.observe(containerRef.current);
+
+      return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
       const observer = new ResizeObserver(() => {
           if (artRef.current && typeof (artRef.current as any).resize === 'function') {
@@ -335,7 +367,7 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
           volume: 0.7,
           isLive: false,
           muted: false,
-          autoMini: true,
+          autoMini: false, // DISABLED BUILT-IN: Use custom IntersectionObserver for better mobile control
           screenshot: false, 
           setting: true,
           pip: true,
@@ -564,6 +596,7 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
       <div className={`w-full aspect-video lg:aspect-auto lg:h-full bg-black group relative z-0 ${className || ''}`}>
           <style>{`
             .art-danmuku-control, .art-control-danmuku { display: none !important; }
+            .art-layer-mini { z-index: 100 !important; }
             @media (max-width: 768px) {
                 .art-controls .art-control { padding: 0 1px !important; }
                 .art-control-volume, .art-control-fullscreenWeb { display: none !important; }
