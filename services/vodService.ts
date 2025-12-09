@@ -294,23 +294,34 @@ export const getDoubanPoster = async (keyword: string): Promise<string | null> =
 export const parseAllSources = (detail: VodDetail): PlaySource[] => {
     if (!detail.vod_play_url || !detail.vod_play_from) return [];
     
-    // vod_play_from can be "wjm3u8$$$youku"
     const fromArray = detail.vod_play_from.split('$$$');
-    // vod_play_url uses $$$ to separate sources
     const urlArray = detail.vod_play_url.split('$$$');
     
+    // Resolve Source Name from API URL
+    let sourceName = '默认源';
+    if (detail.api_url) {
+        const sources = getVodSources();
+        const matched = sources.find(s => s.api === detail.api_url);
+        if (matched) sourceName = matched.name;
+    } else if (detail.source === 'douban') {
+        sourceName = '豆瓣推荐';
+    }
+
     const sources: PlaySource[] = [];
     
-    fromArray.forEach((name, idx) => {
+    // Check how many valid M3U8 sources exist to decide if we need to append the format code
+    const m3u8Sources = fromArray.filter(f => f.toLowerCase().includes('m3u8'));
+
+    fromArray.forEach((code, idx) => {
         const urlStr = urlArray[idx];
         if (!urlStr) return;
+
+        // FILTER: ONLY KEEP M3U8 SOURCES
+        if (!code.toLowerCase().includes('m3u8')) return;
         
-        // Parse episodes for this source
         const episodes: Episode[] = [];
-        // Episode list separated by #
         const lines = urlStr.split('#');
         lines.forEach((line, epIdx) => {
-            // URL format often: "Episode 1$http://url" or just "http://url"
             const parts = line.split('$');
             let title = parts.length > 1 ? parts[0] : `第 ${epIdx + 1} 集`;
             const url = parts.length > 1 ? parts[1] : parts[0];
@@ -322,7 +333,14 @@ export const parseAllSources = (detail: VodDetail): PlaySource[] => {
         });
         
         if (episodes.length > 0) {
-            sources.push({ name, episodes });
+            // If there are multiple M3U8 variants, append the code (e.g. "Official (ffm3u8)")
+            // Otherwise just use the Source Name (e.g. "Official")
+            let finalName = sourceName;
+            if (m3u8Sources.length > 1) {
+                finalName = `${sourceName} (${code})`;
+            }
+            
+            sources.push({ name: finalName, episodes });
         }
     });
 
@@ -333,10 +351,7 @@ export const parseEpisodes = (urlStr: string, fromStr: string): Episode[] => {
   // Legacy support using parseAllSources
   const dummyDetail = { vod_play_url: urlStr, vod_play_from: fromStr } as VodDetail;
   const sources = parseAllSources(dummyDetail);
-  
-  // Prefer M3U8
-  const m3u8Source = sources.find(s => s.name.toLowerCase().includes('m3u8'));
-  return m3u8Source ? m3u8Source.episodes : (sources[0]?.episodes || []);
+  return sources[0]?.episodes || [];
 };
 
 export const enrichVodDetail = async (detail: VodDetail): Promise<Partial<VodDetail> | null> => {
@@ -348,6 +363,9 @@ export const enrichVodDetail = async (detail: VodDetail): Promise<Partial<VodDet
             if (doubanData.pic) updates.vod_pic = doubanData.pic;
             if (doubanData.recs) updates.vod_recs = doubanData.recs;
             if (doubanData.actorsExtended) updates.vod_actors_extended = doubanData.actorsExtended;
+            
+            // Fix: Ensure content/synopsis is also updated
+            if (doubanData.content) updates.vod_content = doubanData.content;
             
             if (doubanData.director) updates.vod_director = doubanData.director;
             if (doubanData.actor) updates.vod_actor = doubanData.actor;
@@ -389,6 +407,7 @@ export const fetchDoubanData = async (keyword: string, doubanId?: string | numbe
     if (picMatch) result.pic = picMatch[1].replace(/s_ratio_poster|m(?=\/public)/, 'l');
     
     const summaryMatch = html.match(/property="v:summary"[^>]*>([\s\S]*?)<\/span>/);
+    // Parse breaks to newlines for better display
     if (summaryMatch) result.content = summaryMatch[1].replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
 
     return result;
