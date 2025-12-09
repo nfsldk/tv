@@ -11,6 +11,7 @@ export interface VodItem {
   vod_year?: string;
   vod_score?: string; // Unified score field
   source?: 'douban' | 'cms';
+  api_url?: string; // The API source where this item was found
 }
 
 export interface ActorItem {
@@ -62,7 +63,20 @@ export interface Episode {
   index: number;
 }
 
+export interface PlaySource {
+  name: string;
+  episodes: Episode[];
+}
+
 export interface ChatMessage {
   role: 'user' | 'model';
   text: string;
+}
+
+export interface VodSource {
+  id: string;
+  name: string;
+  api: string;
+  active: boolean;
+  canDelete?: boolean;
 }

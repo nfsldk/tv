@@ -1,15 +1,81 @@
-import { Episode, VodDetail, ApiResponse, ActorItem, RecommendationItem, VodItem } from '../types';
 
-// CMS API Base (For Playback Links ONLY)
-const API_BASE = 'https://caiji.dyttzyapi.com/api.php/provide/vod';
+import { Episode, VodDetail, ApiResponse, ActorItem, RecommendationItem, VodItem, VodSource, PlaySource } from '../types';
+
+// DEFAULT SOURCE
+const DEFAULT_SOURCE: VodSource = {
+    id: 'default',
+    name: '默认源 (官方)',
+    api: 'https://caiji.dyttzyapi.com/api.php/provide/vod',
+    active: true,
+    canDelete: false
+};
 
 // GLOBAL CUSTOM PROXY
 const GLOBAL_PROXY = 'https://daili.laidd.de5.net/?url=';
 
+// --- SOURCE MANAGEMENT ---
+
+export const getVodSources = (): VodSource[] => {
+    try {
+        const stored = localStorage.getItem('cine_vod_sources');
+        if (stored) {
+            return JSON.parse(stored);
+        }
+    } catch(e) {}
+    return [DEFAULT_SOURCE];
+};
+
+export const saveVodSources = (sources: VodSource[]) => {
+    localStorage.setItem('cine_vod_sources', JSON.stringify(sources));
+};
+
+export const addVodSource = (name: string, api: string) => {
+    const sources = getVodSources();
+    const newSource: VodSource = {
+        id: Date.now().toString(),
+        name,
+        api,
+        active: true,
+        canDelete: true
+    };
+    saveVodSources([...sources, newSource]);
+    return newSource;
+};
+
+export const deleteVodSource = (id: string) => {
+    const sources = getVodSources();
+    const filtered = sources.filter(s => s.id !== id);
+    saveVodSources(filtered);
+};
+
+export const resetVodSources = () => {
+    localStorage.removeItem('cine_vod_sources');
+    return [DEFAULT_SOURCE];
+};
+
+// --- FALLBACK DATA ---
+const FALLBACK_MOVIES: VodItem[] = [
+    { vod_id: 1, vod_name: "沙丘2", vod_pic: "https://img9.doubanio.com/view/photo/l/public/p2905327559.webp", vod_score: "8.3", type_name: "科幻", vod_year: "2024", source: 'douban' },
+    { vod_id: 2, vod_name: "周处除三害", vod_pic: "https://img9.doubanio.com/view/photo/l/public/p2904838662.webp", vod_score: "8.1", type_name: "动作", vod_year: "2024", source: 'douban' },
+    { vod_id: 3, vod_name: "热辣滚烫", vod_pic: "https://img9.doubanio.com/view/photo/l/public/p2903273413.webp", vod_score: "7.8", type_name: "喜剧", vod_year: "2024", source: 'douban' },
+    { vod_id: 4, vod_name: "第二十条", vod_pic: "https://img9.doubanio.com/view/photo/l/public/p2903636733.webp", vod_score: "7.7", type_name: "剧情", vod_year: "2024", source: 'douban' },
+    { vod_id: 5, vod_name: "哥斯拉大战金刚2", vod_pic: "https://img1.doubanio.com/view/photo/l/public/p2905896429.webp", vod_score: "7.0", type_name: "动作", vod_year: "2024", source: 'douban' },
+    { vod_id: 6, vod_name: "飞驰人生2", vod_pic: "https://img2.doubanio.com/view/photo/l/public/p2903144881.webp", vod_score: "7.7", type_name: "喜剧", vod_year: "2024", source: 'douban' },
+    { vod_id: 7, vod_name: "功夫熊猫4", vod_pic: "https://img9.doubanio.com/view/photo/l/public/p2905319835.webp", vod_score: "6.5", type_name: "动画", vod_year: "2024", source: 'douban' },
+    { vod_id: 8, vod_name: "银河护卫队3", vod_pic: "https://img9.doubanio.com/view/photo/l/public/p2890479996.webp", vod_score: "8.4", type_name: "科幻", vod_year: "2023", source: 'douban' },
+];
+
+const FALLBACK_SERIES: VodItem[] = [
+    { vod_id: 11, vod_name: "繁花", vod_pic: "https://img9.doubanio.com/view/photo/l/public/p2902345475.webp", vod_score: "8.7", type_name: "剧情", vod_year: "2024", source: 'douban' },
+    { vod_id: 12, vod_name: "三体", vod_pic: "https://img9.doubanio.com/view/photo/l/public/p2886360564.webp", vod_score: "8.7", type_name: "科幻", vod_year: "2023", source: 'douban' },
+    { vod_id: 13, vod_name: "漫长的季节", vod_pic: "https://img1.doubanio.com/view/photo/l/public/p2891334968.webp", vod_score: "9.4", type_name: "悬疑", vod_year: "2023", source: 'douban' },
+    { vod_id: 14, vod_name: "庆余年", vod_pic: "https://img9.doubanio.com/view/photo/l/public/p2574442575.webp", vod_score: "7.9", type_name: "古装", vod_year: "2019", source: 'douban' },
+];
+
 /**
  * Robust Fetch Utility with Timeout
  */
-const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = 15000) => {
+const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = 8000) => {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
     try {
@@ -28,25 +94,24 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout 
 const fetchWithProxy = async (targetUrl: string, options: RequestInit = {}): Promise<any> => {
   try {
       const proxyUrl = `${GLOBAL_PROXY}${encodeURIComponent(targetUrl)}`;
-      const response = await fetchWithTimeout(proxyUrl, options, 15000);
+      const response = await fetchWithTimeout(proxyUrl, options, 10000);
 
       if (response.ok) {
           const text = await response.text();
           try {
-              // Force JSON parse
               return JSON.parse(text);
           } catch(e) {
               return text;
           }
       }
   } catch (e) {
-      console.warn(`Proxy fetch failed for ${targetUrl}`, e);
+      // console.warn(`Proxy fetch failed for ${targetUrl}`, e);
   }
   return null;
 };
 
 /**
- * FETCH DOUBAN JSON (Home & Category Data Source)
+ * FETCH DOUBAN JSON
  */
 const fetchDoubanJson = async (type: string, tag: string, limit = 12, sort = 'recommend'): Promise<VodItem[]> => {
     const start = sort === 'recommend' ? Math.floor(Math.random() * 5) : 0; 
@@ -71,7 +136,7 @@ const fetchDoubanJson = async (type: string, tag: string, limit = 12, sort = 're
             }));
         }
     } catch (e) {
-        console.error("Douban API fetch failed", e);
+        // console.error("Douban API fetch failed", e);
     }
     
     return [];
@@ -79,7 +144,10 @@ const fetchDoubanJson = async (type: string, tag: string, limit = 12, sort = 're
 
 export const getHomeSections = async () => {
     const safeFetch = async (fn: Promise<VodItem[]>) => {
-        try { return await fn; } catch (e) { return []; }
+        try { 
+            const res = await fn; 
+            return Array.isArray(res) ? res : [];
+        } catch (e) { return []; }
     };
 
     const [movies, series, shortDrama, anime, variety] = await Promise.all([
@@ -89,6 +157,19 @@ export const getHomeSections = async () => {
         safeFetch(fetchDoubanJson('tv', '日本动画', 18)),
         safeFetch(fetchDoubanJson('tv', '综艺', 18))
     ]);
+    
+    const isCriticalEmpty = movies.length === 0 && series.length === 0;
+    
+    if (isCriticalEmpty) {
+        console.warn("Douban API unreachable, using internal fallback data.");
+        return {
+            movies: FALLBACK_MOVIES,
+            series: FALLBACK_SERIES, 
+            shortDrama: FALLBACK_SERIES.map(i => ({...i, type_name: '短剧'})),
+            anime: FALLBACK_MOVIES.map(i => ({...i, type_name: '动漫'})),
+            variety: FALLBACK_SERIES.map(i => ({...i, type_name: '综艺'}))
+        };
+    }
     
     return { movies, series, shortDrama, anime, variety };
 };
@@ -140,40 +221,64 @@ export const fetchCategoryItems = async (
             return [];
     }
 
-    return await fetchDoubanJson(type, tag, 60, sort);
+    const items = await fetchDoubanJson(type, tag, 60, sort);
+    if (items.length === 0 && category === 'movies') return FALLBACK_MOVIES;
+    if (items.length === 0 && category === 'series') return FALLBACK_SERIES;
+    
+    return items;
 };
 
+// --- MULTI-SOURCE SEARCH ---
+
 export const searchMovies = async (keyword: string, page = 1): Promise<ApiResponse> => {
+  const sources = getVodSources().filter(s => s.active);
   const params = new URLSearchParams({
       ac: 'detail',
       wd: keyword,
       pg: page.toString(),
   });
-  
-  const targetUrl = `${API_BASE}?${params.toString()}`;
-  try {
-      const data = await fetchWithProxy(targetUrl);
-      if (typeof data === 'object' && (data.code === 1 || Array.isArray(data.list))) {
-          return data as ApiResponse;
+
+  for (const source of sources) {
+      const targetUrl = `${source.api}?${params.toString()}`;
+      try {
+          const data = await fetchWithProxy(targetUrl);
+          if (typeof data === 'object' && (data.code === 1 || (Array.isArray(data.list) && data.list.length > 0))) {
+              const list = (data.list || []).map((item: any) => ({
+                  ...item,
+                  api_url: source.api 
+              }));
+              return { ...data, list };
+          }
+      } catch(e) {
+          console.warn(`Search failed on source ${source.name}`, e);
       }
-  } catch(e) {}
+  }
   
   return { code: 0, msg: "Error", page: 1, pagecount: 0, limit: "20", total: 0, list: [] };
 };
 
-export const getMovieDetail = async (id: number): Promise<VodDetail | null> => {
+export const getMovieDetail = async (id: number | string, apiUrl?: string): Promise<VodDetail | null> => {
   const params = new URLSearchParams({
       ac: 'detail',
       ids: id.toString(),
       out: 'json'
   });
-  const targetUrl = `${API_BASE}?${params.toString()}`;
-  try {
-      const data = await fetchWithProxy(targetUrl);
-      if (data && data.list && data.list.length > 0) {
-          return data.list[0] as VodDetail;
-      }
-  } catch(e) {}
+  
+  const sourcesToTry = apiUrl 
+      ? [{ api: apiUrl, name: 'Target' }] 
+      : getVodSources().filter(s => s.active);
+
+  for (const source of sourcesToTry) {
+      const targetUrl = `${source.api}?${params.toString()}`;
+      try {
+          const data = await fetchWithProxy(targetUrl);
+          if (data && data.list && data.list.length > 0) {
+              const detail = data.list[0] as VodDetail;
+              detail.api_url = source.api; 
+              return detail;
+          }
+      } catch(e) {}
+  }
   return null;
 };
 
@@ -186,31 +291,52 @@ export const getDoubanPoster = async (keyword: string): Promise<string | null> =
     return null; 
 };
 
+export const parseAllSources = (detail: VodDetail): PlaySource[] => {
+    if (!detail.vod_play_url || !detail.vod_play_from) return [];
+    
+    // vod_play_from can be "wjm3u8$$$youku"
+    const fromArray = detail.vod_play_from.split('$$$');
+    // vod_play_url uses $$$ to separate sources
+    const urlArray = detail.vod_play_url.split('$$$');
+    
+    const sources: PlaySource[] = [];
+    
+    fromArray.forEach((name, idx) => {
+        const urlStr = urlArray[idx];
+        if (!urlStr) return;
+        
+        // Parse episodes for this source
+        const episodes: Episode[] = [];
+        // Episode list separated by #
+        const lines = urlStr.split('#');
+        lines.forEach((line, epIdx) => {
+            // URL format often: "Episode 1$http://url" or just "http://url"
+            const parts = line.split('$');
+            let title = parts.length > 1 ? parts[0] : `第 ${epIdx + 1} 集`;
+            const url = parts.length > 1 ? parts[1] : parts[0];
+             if (url && (url.startsWith('http') || url.startsWith('//'))) {
+                  const finalUrl = url.startsWith('//') ? `https:${url}` : url;
+                  if (!title || title === finalUrl) title = `EP ${epIdx + 1}`;
+                  episodes.push({ title, url: finalUrl, index: epIdx });
+             }
+        });
+        
+        if (episodes.length > 0) {
+            sources.push({ name, episodes });
+        }
+    });
+
+    return sources;
+}
+
 export const parseEpisodes = (urlStr: string, fromStr: string): Episode[] => {
-  if (!urlStr || !fromStr) return [];
-  const fromArray = fromStr.split('$$$');
-  const urlArray = urlStr.split('$$$');
-  const sources = fromArray.map((code, idx) => ({
-      code: code.toLowerCase(),
-      url: urlArray[idx] || '',
-      index: idx
-  })).filter(s => s.url);
-  const m3u8Sources = sources.filter(s => s.code.includes('m3u8') || s.url.includes('.m3u8'));
-  const selectedSource = m3u8Sources.length > 0 ? m3u8Sources[0] : sources[0];
-  if (!selectedSource) return [];
-  const episodes: Episode[] = [];
-  const lines = selectedSource.url.split('#');
-  lines.forEach((line, idx) => {
-      const parts = line.split('$');
-      let title = parts.length > 1 ? parts[0] : `第 ${idx + 1} 集`;
-      const url = parts.length > 1 ? parts[1] : parts[0];
-      if (url && (url.startsWith('http') || url.startsWith('//'))) {
-          const finalUrl = url.startsWith('//') ? `https:${url}` : url;
-          if (!title || title === finalUrl) title = `EP ${idx + 1}`;
-          episodes.push({ title, url: finalUrl, index: idx });
-      }
-  });
-  return episodes;
+  // Legacy support using parseAllSources
+  const dummyDetail = { vod_play_url: urlStr, vod_play_from: fromStr } as VodDetail;
+  const sources = parseAllSources(dummyDetail);
+  
+  // Prefer M3U8
+  const m3u8Source = sources.find(s => s.name.toLowerCase().includes('m3u8'));
+  return m3u8Source ? m3u8Source.episodes : (sources[0]?.episodes || []);
 };
 
 export const enrichVodDetail = async (detail: VodDetail): Promise<Partial<VodDetail> | null> => {
@@ -222,7 +348,7 @@ export const enrichVodDetail = async (detail: VodDetail): Promise<Partial<VodDet
             if (doubanData.pic) updates.vod_pic = doubanData.pic;
             if (doubanData.recs) updates.vod_recs = doubanData.recs;
             if (doubanData.actorsExtended) updates.vod_actors_extended = doubanData.actorsExtended;
-            // Always overwrite detail fields if douban has them
+            
             if (doubanData.director) updates.vod_director = doubanData.director;
             if (doubanData.actor) updates.vod_actor = doubanData.actor;
             if (doubanData.writer) updates.vod_writer = doubanData.writer;
@@ -261,85 +387,9 @@ export const fetchDoubanData = async (keyword: string, doubanId?: string | numbe
     
     const picMatch = html.match(/rel="v:image" src="([^"]+)"/);
     if (picMatch) result.pic = picMatch[1].replace(/s_ratio_poster|m(?=\/public)/, 'l');
-
+    
     const summaryMatch = html.match(/property="v:summary"[^>]*>([\s\S]*?)<\/span>/);
     if (summaryMatch) result.content = summaryMatch[1].replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
-
-    // Basic Metadata
-    const directors = [...html.matchAll(/rel="v:directedBy">([^<]+)</g)].map(m => m[1]).join(' / ');
-    if (directors) result.director = directors;
-
-    const actorsText = [...html.matchAll(/rel="v:starring">([^<]+)</g)].slice(0, 10).map(m => m[1]).join(' / ');
-    if (actorsText) result.actor = actorsText;
-    
-    const yearMatch = html.match(/property="v:initialReleaseDate" content="(\d{4})/);
-    if (yearMatch) result.year = yearMatch[1];
-
-    const areaMatch = html.match(/<span class="pl">制片国家\/地区:<\/span>([\s\S]*?)<br/);
-    if (areaMatch) result.area = areaMatch[1].replace(/<[^>]+>/g, '').trim();
-
-    const langMatch = html.match(/<span class="pl">语言:<\/span>([\s\S]*?)<br/);
-    if (langMatch) result.lang = langMatch[1].replace(/<[^>]+>/g, '').trim();
-
-    const writerMatch = html.match(/<span class="pl">编剧:<\/span>([\s\S]*?)<br/);
-    if (writerMatch) result.writer = writerMatch[1].replace(/<a[^>]+>|<\/a>/g, '').trim();
-
-    const pubdateMatch = html.match(/property="v:initialReleaseDate" content="([^"]+)"/);
-    if (pubdateMatch) result.pubdate = pubdateMatch[1];
-
-    const epMatch = html.match(/<span class="pl">集数:<\/span>(\d+)/);
-    if (epMatch) result.episodeCount = epMatch[1];
-
-    const durMatch = html.match(/property="v:runtime" content="(\d+)"/) || html.match(/<span class="pl">单集片长:<\/span>([\s\S]*?)<br/);
-    if (durMatch) result.duration = durMatch[1].trim();
-
-    const aliasMatch = html.match(/<span class="pl">又名:<\/span>([\s\S]*?)<br/);
-    if (aliasMatch) result.alias = aliasMatch[1].trim();
-
-    const imdbMatch = html.match(/<span class="pl">IMDb:?<\/span>([\s\S]*?)<br/);
-    if (imdbMatch) result.imdb = imdbMatch[1].trim();
-
-    // Extract Actors Extended (Images)
-    const actorsExtended: ActorItem[] = [];
-    const celebrityBlockMatch = html.match(/<ul class="celebrities-list[^>]*>([\s\S]*?)<\/ul>/) || html.match(/id="celebrities"[\s\S]*?<ul[^>]*>([\s\S]*?)<\/ul>/);
-    if (celebrityBlockMatch) {
-        const block = celebrityBlockMatch[1];
-        const items = block.split('</li>');
-        items.forEach(item => {
-            const nameMatch = item.match(/title="([^"]+)" class="name"/) || item.match(/class="name"[^>]*>([^<]+)</);
-            const roleMatch = item.match(/class="role"[^>]*>([^<]+)</);
-            const imgMatch = item.match(/background-image:\s*url\(([^)]+)\)/) || item.match(/<img[^>]+src="([^"]+)"/);
-            
-            if (nameMatch && imgMatch) {
-                let picUrl = imgMatch[1].replace(/['"]/g, '');
-                if (picUrl.includes('default')) return; 
-                actorsExtended.push({
-                    name: nameMatch[1].trim(),
-                    pic: picUrl,
-                    role: roleMatch ? roleMatch[1].trim() : '演员'
-                });
-            }
-        });
-    }
-    if (actorsExtended.length > 0) result.actorsExtended = actorsExtended;
-
-    // Extract Recommendations
-    const recommendations: RecommendationItem[] = [];
-    const recBlockMatch = html.match(/<div class="recommendations-bd"[\s\S]*?>([\s\S]*?)<\/div>/) || html.match(/id="recommendations"[\s\S]*?<div class="bd">([\s\S]*?)<\/div>/);
-    if (recBlockMatch) {
-        const block = recBlockMatch[1];
-        const dlRegex = /<dl>([\s\S]*?)<\/dl>/g;
-        let dlMatch;
-        while ((dlMatch = dlRegex.exec(block)) !== null) {
-            const inner = dlMatch[1];
-            const nameMatch = inner.match(/<dd>\s*<a[^>]*>([^<]+)<\/a>/) || inner.match(/title="([^"]+)"/);
-            const imgMatch = inner.match(/<img[^>]+src="([^"]+)"/);
-            if (nameMatch && imgMatch) {
-                recommendations.push({ name: nameMatch[1].trim(), pic: imgMatch[1] });
-            }
-        }
-    }
-    if (recommendations.length > 0) result.recs = recommendations;
 
     return result;
   } catch (e) { return null; }
