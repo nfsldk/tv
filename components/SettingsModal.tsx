@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { VodSource } from '../types';
-import { getVodSources, addVodSource, deleteVodSource, resetVodSources, saveVodSources } from '../services/vodService';
+import { getVodSources, addVodSource, deleteVodSource, resetVodSources, saveVodSources, initVodSources } from '../services/vodService';
 
 interface SettingsModalProps {
     isOpen: boolean;
@@ -13,6 +13,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     const [newName, setNewName] = useState('');
     const [newApi, setNewApi] = useState('');
     const [showAdd, setShowAdd] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
     
     // Auth State
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -21,7 +22,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
 
     useEffect(() => {
         if (isOpen) {
-            setSources(getVodSources());
+            // Force sync from cloud when opening settings
+            const syncAndLoad = async () => {
+                setIsLoading(true);
+                await initVodSources(); // Pull latest from Supabase
+                setSources(getVodSources()); // Read updated local storage
+                setIsLoading(false);
+            };
+            syncAndLoad();
+
             // Reset auth state on close/open if desired, or keep session
             // For now, simple session reset
             if (!isAuthenticated) {
@@ -42,21 +51,27 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
         }
     };
 
-    const handleAdd = (e: React.FormEvent) => {
+    const handleAdd = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newName || !newApi) return;
-        // Trim inputs to avoid URL mismatch issues
-        addVodSource(newName.trim(), newApi.trim());
-        setSources(getVodSources());
+        
+        setIsLoading(true);
+        // Add to cloud and local
+        await addVodSource(newName.trim(), newApi.trim());
+        setSources(getVodSources()); // Refresh list
+        setIsLoading(false);
+        
         setNewName('');
         setNewApi('');
         setShowAdd(false);
     };
 
-    const handleDelete = (id: string) => {
+    const handleDelete = async (id: string) => {
         if (confirm('确定删除此源吗？')) {
-            deleteVodSource(id);
+            setIsLoading(true);
+            await deleteVodSource(id);
             setSources(getVodSources());
+            setIsLoading(false);
         }
     };
 
@@ -64,12 +79,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
         const updated = sources.map(s => s.id === id ? { ...s, active: !s.active } : s);
         setSources(updated);
         saveVodSources(updated);
+        // Note: Toggle currently only syncs active state to local/cloud via toggleVodSource service wrapper
+        // If strict cloud sync for 'active' status is needed, update service similarly
     };
 
     const handleReset = async () => {
         if (confirm('恢复默认设置将清除所有自定义源，确定吗？')) {
+            setIsLoading(true);
             const defaults = await resetVodSources();
             setSources(defaults);
+            setIsLoading(false);
         }
     };
 
@@ -84,6 +103,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                           <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
                         </svg>
                         资源站管理
+                        {isLoading && <span className="text-xs font-normal text-gray-500 animate-pulse ml-2">(同步中...)</span>}
                     </h2>
                     <button onClick={onClose} className="text-gray-400 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
@@ -140,6 +160,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                                             <button 
                                                 onClick={() => handleDelete(source.id)}
                                                 className="text-red-400 hover:text-red-300 text-sm flex items-center gap-1 hover:bg-red-500/10 px-3 py-1.5 rounded transition-colors self-start md:self-center"
+                                                disabled={isLoading}
                                             >
                                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
                                                 删除
@@ -179,7 +200,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                                     </div>
                                     <div className="flex justify-end gap-2">
                                         <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm text-gray-300 hover:text-white">取消</button>
-                                        <button type="submit" className="px-4 py-2 text-sm bg-brand text-black font-bold rounded hover:bg-brand-hover">确认添加</button>
+                                        <button type="submit" disabled={isLoading} className="px-4 py-2 text-sm bg-brand text-black font-bold rounded hover:bg-brand-hover disabled:opacity-50">
+                                            {isLoading ? '添加中...' : '确认添加'}
+                                        </button>
                                     </div>
                                 </form>
                             ) : (

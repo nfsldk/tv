@@ -11,12 +11,12 @@ let supabase: any = null;
 if (SUPABASE_URL && SUPABASE_KEY) {
     try {
         supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-        // console.log('Supabase initialized');
+        console.log('Supabase initialized successfully');
     } catch (e) {
         console.warn('Supabase init failed', e);
     }
 } else {
-    // console.warn('Supabase credentials missing. Cloud sync disabled.');
+    console.warn('Supabase credentials missing. Cloud sync disabled. Please check VITE_SUPABASE_URL and VITE_SUPABASE_KEY.');
 }
 
 // DEFAULT SOURCE
@@ -94,7 +94,10 @@ export const saveVodSources = (sources: VodSource[]) => {
 
 // Initialize sources from Cloud (Supabase) if configured
 export const initVodSources = async () => {
-    if (!supabase) return;
+    if (!supabase) {
+        console.log('Sync skipped: Supabase not configured');
+        return;
+    }
 
     try {
         const { data, error } = await supabase
@@ -103,6 +106,7 @@ export const initVodSources = async () => {
             .order('created_at', { ascending: true });
 
         if (!error && data) {
+            console.log(`Synced ${data.length} sources from cloud.`);
             // Merge cloud sources with local default
             const cloudSources = data.map((d: any) => ({
                 id: d.id,
@@ -117,7 +121,6 @@ export const initVodSources = async () => {
             
             // Overwrite local storage with Cloud truth to ensure sync
             saveVodSources(combined);
-            // console.log('Sources synced from Cloud:', combined.length);
         } else if (error) {
             console.error('Supabase fetch error:', error);
         }
