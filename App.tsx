@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
-import { useHistory, useLocation } from 'react-router-dom';
-import { getHomeSections, searchDouban, searchCms, getAggregatedSearch, getAggregatedMovieDetail, parseAllSources, enrichVodDetail, fetchDoubanData, fetchCategoryItems, getHistory, addToHistory, removeFromHistory, fetchPersonDetail, initVodSources } from './services/vodService';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { getHomeSections, searchCms, getAggregatedSearch, getAggregatedMovieDetail, parseAllSources, enrichVodDetail, fetchDoubanData, fetchCategoryItems, getHistory, addToHistory, removeFromHistory, fetchPersonDetail, initVodSources } from './services/vodService';
 import MovieInfoCard from './components/MovieInfoCard';
 import ImageWithFallback from './components/ImageWithFallback';
 import { VodItem, VodDetail, Episode, PlaySource, HistoryItem, PersonDetail } from './types';
@@ -94,20 +94,21 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
 
   return (
     <div 
-        className="relative w-full h-[450px] md:h-[600px] rounded-2xl overflow-hidden mb-12 group shadow-2xl bg-[#0a0a0a] touch-pan-y border border-white/5"
+        className="relative w-full h-[55vh] min-h-[500px] md:h-[70vh] md:min-h-[600px] max-h-[800px] rounded-3xl overflow-hidden mb-12 group shadow-[0_20px_50px_rgba(0,0,0,0.5)] bg-[#050505] touch-pan-y border border-white/10"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
     >
-      {/* Background Layer */}
-      <div key={activeItem.vod_id + '_bg'} className="absolute inset-0 animate-fade-in transition-all duration-700">
+      {/* Background Layer (Large Poster) */}
+      <div key={activeItem.vod_id + '_bg'} className="absolute inset-0 animate-fade-in transition-all duration-1000">
           <ImageWithFallback 
               src={activeItem.vod_pic} 
               alt={activeItem.vod_name} 
-              className="w-full h-full object-cover blur-md opacity-40 scale-105" 
+              className="w-full h-full object-cover object-center opacity-60 scale-105" 
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-[#020617] via-[#020617]/80 to-transparent z-0"></div>
-          <div className="absolute inset-0 bg-gradient-to-r from-[#020617] via-[#020617]/70 to-transparent z-0"></div>
+          {/* Strong Gradients to ensure text readability over clear background */}
+          <div className="absolute inset-0 bg-gradient-to-t from-[#020617] via-[#020617]/50 to-transparent z-0"></div>
+          <div className="absolute inset-0 bg-gradient-to-r from-[#020617] via-[#020617]/80 to-transparent z-0"></div>
       </div>
 
       {/* Content Container */}
@@ -117,7 +118,7 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
             <div className="flex flex-row items-center gap-4 md:gap-12 w-full animate-slide-up">
                 
                 {/* Poster: Visible & Sized for Mobile Side-by-Side */}
-                <div className="flex-shrink-0 w-[120px] md:w-[240px] aspect-[2/3] rounded-lg md:rounded-xl overflow-hidden shadow-[0_5px_20px_rgba(0,0,0,0.6)] border border-white/20 relative z-20 hover:scale-105 transition-transform duration-500 bg-black">
+                <div className="flex-shrink-0 w-[120px] md:w-[260px] aspect-[2/3] rounded-xl md:rounded-2xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.8)] border border-white/10 relative z-20 hover:scale-105 transition-transform duration-700 bg-black/50">
                     <ImageWithFallback 
                         src={activeItem.vod_pic} 
                         alt={activeItem.vod_name} 
@@ -129,53 +130,53 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
                 <div className="flex-1 text-left space-y-2 md:space-y-6 flex flex-col items-start justify-center min-w-0">
                     
                     {/* Tags */}
-                    <div className="flex flex-wrap items-center justify-start gap-1.5 md:gap-2">
-                        <span className="bg-brand text-black text-[10px] md:text-xs font-black px-1.5 py-0.5 rounded uppercase tracking-wider">
+                    <div className="flex flex-wrap items-center justify-start gap-1.5 md:gap-3">
+                        <span className="bg-brand text-black text-[10px] md:text-sm font-black px-2 py-0.5 rounded-md uppercase tracking-wider shadow-lg shadow-brand/20">
                             {detail?.score || activeItem.vod_score || 'HOT'}
                         </span>
-                        <span className="bg-white/10 border border-white/10 text-gray-200 text-[10px] md:text-xs font-medium px-1.5 py-0.5 rounded backdrop-blur-md">
+                        <span className="bg-white/10 border border-white/10 text-gray-100 text-[10px] md:text-sm font-medium px-2 py-0.5 rounded-md backdrop-blur-md">
                             {activeItem.vod_year || '2025'}
                         </span>
-                        <span className="bg-white/10 border border-white/10 text-gray-200 text-[10px] md:text-xs font-medium px-1.5 py-0.5 rounded backdrop-blur-md">
+                        <span className="bg-white/10 border border-white/10 text-gray-100 text-[10px] md:text-sm font-medium px-2 py-0.5 rounded-md backdrop-blur-md">
                             {activeItem.type_name || detail?.type_name || '精选'}
                         </span>
                     </div>
 
                     {/* Title */}
-                    <h2 className="text-xl md:text-5xl lg:text-6xl font-black text-white leading-tight drop-shadow-xl tracking-tight line-clamp-2">
+                    <h2 className="text-xl md:text-6xl lg:text-7xl font-black text-white leading-tight drop-shadow-2xl tracking-tight line-clamp-2">
                         {activeItem.vod_name}
                     </h2>
 
                     {/* Sub-info */}
-                    <div className="text-gray-300 text-[10px] md:text-sm font-medium line-clamp-1 opacity-90">
-                        {detail?.director && <span className="mr-2">导演: {detail.director}</span>}
+                    <div className="text-gray-200 text-[10px] md:text-lg font-medium line-clamp-1 opacity-90 drop-shadow-md">
+                        {detail?.director && <span className="mr-4">导演: {detail.director}</span>}
                         {detail?.actor && <span>主演: {detail.actor}</span>}
                     </div>
 
                     {/* Description - Hidden on very small screens if too long, or clamp strictly */}
-                    <p className="text-gray-400 text-[10px] md:text-base leading-relaxed line-clamp-3 md:line-clamp-4 drop-shadow-md max-w-2xl hidden xs:block">
+                    <p className="text-gray-300 text-[10px] md:text-lg leading-relaxed line-clamp-3 md:line-clamp-4 drop-shadow-lg max-w-3xl hidden xs:block">
                         {detail?.content ? detail.content.replace(/<[^>]+>/g, '') : (activeItem.vod_remarks || "暂无简介...")}
                     </p>
 
                     {/* Action Buttons */}
-                    <div className="pt-1 md:pt-2 flex flex-row gap-2 md:gap-4">
+                    <div className="pt-2 md:pt-4 flex flex-row gap-3 md:gap-5">
                         <button 
                             onClick={() => onPlay(activeItem)}
-                            className="bg-white text-black hover:bg-gray-200 text-xs md:text-base font-bold px-3 py-1.5 md:px-8 md:py-3 rounded-full flex items-center gap-1 md:gap-2 transition-all hover:scale-105 shadow-lg whitespace-nowrap"
+                            className="bg-white text-black hover:bg-gray-200 text-xs md:text-lg font-bold px-4 py-2 md:px-10 md:py-4 rounded-full flex items-center gap-1.5 md:gap-3 transition-all hover:scale-105 shadow-[0_0_30px_rgba(255,255,255,0.3)] whitespace-nowrap"
                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 md:w-6 md:h-6">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 md:w-7 md:h-7">
                                 <path fillRule="evenodd" d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653z" clipRule="evenodd" />
                             </svg>
-                            <span>播放</span>
+                            <span>立即播放</span>
                         </button>
                         
                         <button 
-                            className="bg-white/10 text-white hover:bg-white/20 border border-white/10 backdrop-blur-md text-xs md:text-base font-bold px-3 py-1.5 md:px-8 md:py-3 rounded-full flex items-center gap-1 md:gap-2 transition-all hover:scale-105 whitespace-nowrap"
+                            className="bg-white/5 text-white hover:bg-white/10 border border-white/20 backdrop-blur-xl text-xs md:text-lg font-bold px-4 py-2 md:px-10 md:py-4 rounded-full flex items-center gap-1.5 md:gap-3 transition-all hover:scale-105 whitespace-nowrap shadow-xl"
                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 md:w-6 md:h-6">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 md:w-7 md:h-7">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
                             </svg>
-                            <span>详情</span>
+                            <span>更多详情</span>
                         </button>
                     </div>
                 </div>
@@ -184,12 +185,12 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
       </div>
 
       {/* Indicators */}
-      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 z-20">
+      <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex gap-3 z-20">
           {items.map((_, idx) => (
               <button 
                   key={idx}
                   onClick={(e) => { e.stopPropagation(); setCurrentIndex(idx); }}
-                  className={`h-1 md:h-1.5 rounded-full transition-all duration-300 ${idx === currentIndex ? 'bg-brand w-6 md:w-8' : 'bg-white/20 w-1.5 md:w-2 hover:bg-white/50'}`}
+                  className={`h-1.5 rounded-full transition-all duration-300 shadow-lg ${idx === currentIndex ? 'bg-brand w-8 md:w-12' : 'bg-white/20 w-2 md:w-3 hover:bg-white/50'}`}
               />
           ))}
       </div>
@@ -197,15 +198,15 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
       {/* Arrows (Hidden on Mobile) */}
       <button 
         onClick={(e) => { e.stopPropagation(); handlePrev(); }}
-        className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/20 text-white/50 hover:bg-black/50 hover:text-white transition-all hidden md:flex backdrop-blur-sm border border-white/5"
+        className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/10 text-white/30 hover:bg-black/40 hover:text-white transition-all hidden md:flex backdrop-blur-md border border-white/5 hover:border-white/20 hover:scale-110"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
       </button>
       <button 
         onClick={(e) => { e.stopPropagation(); handleNext(); }}
-        className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/20 text-white/50 hover:bg-black/50 hover:text-white transition-all hidden md:flex backdrop-blur-sm border border-white/5"
+        className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/10 text-white/30 hover:bg-black/40 hover:text-white transition-all hidden md:flex backdrop-blur-md border border-white/5 hover:border-white/20 hover:scale-110"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
       </button>
     </div>
   );
@@ -350,7 +351,7 @@ const PersonProfileCard = ({ person }: { person: PersonDetail }) => {
 };
 
 const App: React.FC = () => {
-  const history = useHistory();
+  const navigate = useNavigate();
   const location = useLocation();
   const [loading, setLoading] = useState(false);
   const [searchResults, setSearchResults] = useState<VodItem[]>([]);
@@ -464,7 +465,6 @@ const App: React.FC = () => {
           const director = currentMovie.vod_director || '';
           const type = currentMovie.type_name || '影视';
           
-          // Enhanced SEO Logic
           let titleSuffix = '';
           const isMovie = type === '电影' || episodes.length <= 1;
 
@@ -594,7 +594,7 @@ const App: React.FC = () => {
       setPersonProfile(null); 
 
       if (activeTab !== 'search') {
-          history.push(TAB_TO_URL['search']);
+          navigate(TAB_TO_URL['search']);
       }
       try {
           const results = await getAggregatedSearch(query);
@@ -639,7 +639,7 @@ const App: React.FC = () => {
   const handleItemClick = async (item: VodItem) => {
       if (item.api_url && item.source !== 'douban') {
           handleSelectMovie(item.vod_id, item.api_url);
-          history.push(`/play/${item.vod_id}`);
+          navigate(`/play/${item.vod_id}`);
           return;
       }
 
@@ -667,7 +667,7 @@ const App: React.FC = () => {
 
           if (foundVideo) {
               handleSelectMovie(foundVideo.vod_id, foundVideo.api_url);
-              history.push(`/play/${foundVideo.vod_id}`);
+              navigate(`/play/${foundVideo.vod_id}`);
           } else {
              triggerSearch(cleanName || item.vod_name);
           }
@@ -765,7 +765,7 @@ const App: React.FC = () => {
   const handleTabChange = (tab: string) => {
       const path = TAB_TO_URL[tab];
       if (path) {
-          history.push(path);
+          navigate(path);
       }
   };
 
@@ -899,7 +899,7 @@ const App: React.FC = () => {
               
               {currentMovie && (
                   <section className="mb-12 animate-fade-in space-y-6 mt-4">
-                      <button onClick={() => history.goBack()} className="flex items-center gap-2 text-gray-400 hover:text-white mb-4">
+                      <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-gray-400 hover:text-white mb-4">
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" /></svg>
                           返回
                       </button>
@@ -1008,4 +1008,175 @@ const App: React.FC = () => {
                                                               : ep.index;
                                                             
                                                           let displayName = ep.title;
-                               
+                                                          if (displayName.match(/^\d+$/)) {
+                                                              displayName = displayName;
+                                                          }
+
+                                                          return (
+                                                              <button
+                                                                  key={ep.index}
+                                                                  onClick={() => {
+                                                                      setCurrentEpisodeIndex(ep.index);
+                                                                  }}
+                                                                  className={`h-9 rounded border text-xs font-medium transition-all truncate px-1 ${
+                                                                      currentEpisodeIndex === ep.index
+                                                                      ? 'bg-brand text-black border-brand shadow-[0_0_10px_rgba(34,197,94,0.3)] font-bold'
+                                                                      : 'bg-[#1a1f2e] text-gray-300 border-white/5 hover:border-white/30 hover:bg-white/5'
+                                                                  }`}
+                                                                  title={ep.title}
+                                                              >
+                                                                  {displayName}
+                                                              </button>
+                                                          );
+                                                      })}
+                                                  </div>
+                                              </>
+                                          ) : (
+                                              <div className="space-y-2">
+                                                  {availableSources.map((source, idx) => (
+                                                      <button
+                                                          key={idx}
+                                                          onClick={() => handleSourceChange(idx)}
+                                                          className={`w-full text-left p-3 rounded-xl border transition-all flex justify-between items-center group ${
+                                                              currentSourceIndex === idx
+                                                              ? 'bg-brand/10 border-brand text-brand shadow-[0_0_15px_rgba(34,197,94,0.1)]'
+                                                              : 'bg-[#1a1f2e] border-white/5 text-gray-300 hover:bg-white/5 hover:border-white/20'
+                                                          }`}
+                                                      >
+                                                          <div>
+                                                              <div className={`font-bold text-sm mb-0.5 ${currentSourceIndex === idx ? 'text-brand' : 'text-gray-200'}`}>
+                                                                  {source.name}
+                                                              </div>
+                                                              <div className="text-[10px] text-gray-500 font-mono">
+                                                                  {source.episodes.length} Episodes
+                                                              </div>
+                                                          </div>
+                                                          {currentSourceIndex === idx && (
+                                                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-brand">
+                                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                                              </svg>
+                                                          )}
+                                                      </button>
+                                                  ))}
+                                              </div>
+                                          )}
+                                      </div>
+                                  </div>
+                              </div>
+                          )}
+                      </div>
+
+                      <MovieInfoCard movie={currentMovie} onSearch={triggerSearch} />
+                      <Suspense fallback={null}>
+                          <GeminiChat currentMovie={currentMovie} />
+                      </Suspense>
+                  </section>
+              )}
+
+              {activeTab === 'home' && !currentMovie && (
+                  <>
+                      {heroItems.length > 0 && <HeroBanner items={heroItems} onPlay={handleItemClick} />}
+
+                      {watchHistory.length > 0 && (
+                          <HorizontalSection 
+                            title="继续观看" 
+                            items={watchHistory} 
+                            id="history" 
+                            onItemClick={handleItemClick}
+                            onItemContextMenu={handleContextMenu}
+                          />
+                      )}
+
+                      {isHomeEmpty ? (
+                          <div className="flex flex-col items-center justify-center py-20 text-gray-500">
+                              <p className="text-lg">暂无推荐数据</p>
+                              <button onClick={() => window.location.reload()} className="mt-4 text-brand hover:underline">刷新重试</button>
+                          </div>
+                      ) : (
+                          <>
+                              <HorizontalSection title="热门电影" items={homeSections.movies} id="movies" onItemClick={handleItemClick} />
+                              <HorizontalSection title="热播剧集" items={homeSections.series} id="series" onItemClick={handleItemClick} />
+                              <HorizontalSection title="热门动漫" items={homeSections.anime} id="anime" onItemClick={handleItemClick} />
+                              <HorizontalSection title="精选综艺" items={homeSections.variety} id="variety" onItemClick={handleItemClick} />
+                          </>
+                      )}
+                  </>
+              )}
+
+              {(['movies', 'series', 'anime', 'variety'].includes(activeTab)) && !currentMovie && (
+                  <CategoryGrid category={activeTab} onItemClick={handleItemClick} />
+              )}
+
+              {activeTab === 'search' && !currentMovie && (
+                  <div className="animate-fade-in max-w-5xl mx-auto">
+                      {/* Search Input */}
+                      <div className="flex gap-2 md:gap-4 mb-8">
+                          <div className="relative flex-1 group">
+                              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-gray-400 group-focus-within:text-brand transition-colors"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+                              </div>
+                              <form onSubmit={handleSearch} className="w-full">
+                                  <input 
+                                      type="text" 
+                                      value={searchQuery}
+                                      onChange={(e) => setSearchQuery(e.target.value)}
+                                      placeholder="搜索电影、剧集、综艺、动漫..." 
+                                      className="w-full bg-[#121620] border border-white/10 rounded-xl py-3 md:py-4 pl-12 pr-4 text-white focus:outline-none focus:border-brand/50 focus:ring-1 focus:ring-brand/50 shadow-xl transition-all"
+                                  />
+                              </form>
+                          </div>
+                          <button 
+                              onClick={() => triggerSearch(searchQuery)}
+                              className="bg-brand hover:bg-brand-hover text-black font-bold px-6 md:px-8 rounded-xl transition-all hover:scale-105 shadow-[0_0_15px_rgba(34,197,94,0.3)] whitespace-nowrap"
+                          >
+                              搜索
+                          </button>
+                      </div>
+
+                      <div ref={resultsRef}>
+                          {loading ? (
+                              <div className="flex justify-center py-20">
+                                  <div className="animate-spin h-10 w-10 border-4 border-brand border-t-transparent rounded-full"></div>
+                              </div>
+                          ) : (
+                              <>
+                                  {personProfile && <PersonProfileCard person={personProfile} />}
+
+                                  {searchResults.length > 0 ? (
+                                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
+                                          {searchResults.map((item) => (
+                                              <div key={item.vod_id} onClick={() => handleItemClick(item)} className="group cursor-pointer bg-gray-900 rounded-xl overflow-hidden aspect-[2/3] relative border border-white/5 hover:border-brand/50 transition-all duration-300 hover:-translate-y-1 shadow-lg hover:shadow-brand/10">
+                                                  <ImageWithFallback src={item.vod_pic || ''} alt={item.vod_name} searchKeyword={item.vod_name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                                                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12">
+                                                      <h4 className="text-sm font-bold text-white truncate group-hover:text-brand transition-colors">{item.vod_name}</h4>
+                                                      <div className="flex justify-between items-center mt-1 text-xs text-gray-400">
+                                                          <span>{item.vod_year || 'N/A'}</span>
+                                                          <span className="bg-white/10 px-1.5 py-0.5 rounded text-[10px]">{item.type_name || '影视'}</span>
+                                                      </div>
+                                                  </div>
+                                              </div>
+                                          ))}
+                                      </div>
+                                  ) : (
+                                      hasSearched && (
+                                          <div className="text-center py-20 text-gray-500 flex flex-col items-center">
+                                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" className="w-16 h-16 mb-4 opacity-50"><path strokeLinecap="round" strokeLinejoin="round" d="M15.182 16.318A4.486 4.486 0 0012.016 15a4.486 4.486 0 00-3.198 1.318M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm-.375 0h.008v.015h-.008V9.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75zm-.375 0h.008v.015h-.008V9.75z" /></svg>
+                                              <p>未找到相关内容，换个关键词试试？</p>
+                                          </div>
+                                      )
+                                  )}
+                              </>
+                          )}
+                      </div>
+                  </div>
+              )}
+          </div>
+          
+          <footer className="absolute bottom-0 w-full py-6 text-center text-gray-600 text-xs border-t border-white/5 bg-black/20 backdrop-blur-sm">
+              <p>&copy; 2025 CineStream AI. All rights reserved.</p>
+          </footer>
+      </div>
+  );
+};
+
+export default App;
