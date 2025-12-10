@@ -1,4 +1,5 @@
 
+
 export interface VodItem {
   vod_id: number | string;
   vod_name: string;
@@ -34,6 +35,19 @@ export interface RecommendationItem {
   pic: string;
   year?: string;
   doubanId?: string;
+}
+
+export interface PersonDetail {
+    id: string;
+    name: string;
+    pic: string;
+    gender?: string;
+    constellation?: string;
+    birthdate?: string;
+    birthplace?: string;
+    role?: string;
+    intro?: string;
+    works: VodItem[];
 }
 
 export interface VodDetail extends VodItem {

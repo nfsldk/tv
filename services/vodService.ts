@@ -1,5 +1,6 @@
 
-import { Episode, VodDetail, ApiResponse, ActorItem, RecommendationItem, VodItem, VodSource, PlaySource, HistoryItem } from '../types';
+
+import { Episode, VodDetail, ApiResponse, ActorItem, RecommendationItem, VodItem, VodSource, PlaySource, HistoryItem, PersonDetail } from '../types';
 
 // DEFAULT SOURCE
 const DEFAULT_SOURCE: VodSource = {
@@ -311,7 +312,7 @@ export const searchDouban = async (keyword: string): Promise<VodItem[]> => {
                 vod_name: item.title,
                 vod_pic: item.img ? item.img.replace(/s_ratio_poster|m(?=\/public)/, 'l') : '',
                 vod_score: item.year, // Douban suggest uses year usually, no score
-                type_name: item.type || '影视',
+                type_name: item.type === 'celebrity' ? 'celebrity' : (item.type || '影视'), // Keep celebrity type
                 vod_year: item.year,
                 source: 'douban'
             }));
@@ -320,6 +321,94 @@ export const searchDouban = async (keyword: string): Promise<VodItem[]> => {
         console.warn('Douban search failed', e);
     }
     return [];
+};
+
+export const fetchPersonDetail = async (id: string | number): Promise<PersonDetail | null> => {
+    try {
+        const url = `https://movie.douban.com/celebrity/${id}/`;
+        const html = await fetchWithProxy(url);
+        if (!html || typeof html !== 'string') return null;
+        
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        
+        // Parse Profile
+        const name = doc.querySelector('#content h1')?.textContent?.trim() || 'Unknown';
+        const picRaw = doc.querySelector('#headline .pic img')?.getAttribute('src') || '';
+        const pic = picRaw.replace(/s_ratio_poster|m(?=\/public)/, 'l');
+        
+        const infoLi = doc.querySelectorAll('#headline .info ul li');
+        let gender, constellation, birthdate, birthplace, role;
+        
+        infoLi.forEach(li => {
+            const text = li.textContent || '';
+            if (text.includes('性别')) gender = text.replace('性别:', '').trim();
+            if (text.includes('星座')) constellation = text.replace('星座:', '').trim();
+            if (text.includes('出生日期')) birthdate = text.replace('出生日期:', '').trim();
+            if (text.includes('出生地')) birthplace = text.replace('出生地:', '').trim();
+            if (text.includes('职业')) role = text.replace('职业:', '').trim();
+        });
+        
+        const intro = doc.querySelector('#intro .bd')?.textContent?.trim() || '';
+
+        // Parse Works (Best & Recent)
+        let works: VodItem[] = [];
+        
+        const parseWorkLi = (li: Element) => {
+            const a = li.querySelector('.pic a');
+            const img = li.querySelector('.pic img');
+            const title = a?.getAttribute('title') || img?.getAttribute('alt') || '';
+            const link = a?.getAttribute('href') || '';
+            const subjectId = link.match(/subject\/(\d+)/)?.[1];
+            const picUrl = (img?.getAttribute('src') || '').replace(/s_ratio_poster|m(?=\/public)/, 'l');
+            const rating = li.querySelector('.rating')?.textContent?.trim() || '';
+            
+            if (subjectId && title) {
+                 return {
+                    vod_id: subjectId,
+                    vod_name: title,
+                    vod_pic: picUrl,
+                    vod_score: rating,
+                    type_name: '影视',
+                    source: 'douban',
+                    vod_year: ''
+                 } as VodItem;
+            }
+            return null;
+        };
+        
+        // Merge Best and Recent
+        const bestWorks = doc.querySelectorAll('#best_works .bd ul li');
+        const recentWorks = doc.querySelectorAll('#recent_movies .bd ul li');
+        
+        bestWorks.forEach(li => {
+            const w = parseWorkLi(li);
+            if (w) works.push(w);
+        });
+        
+        recentWorks.forEach(li => {
+            const w = parseWorkLi(li);
+            if (w && !works.some(existing => existing.vod_id === w.vod_id)) {
+                works.push(w);
+            }
+        });
+
+        return {
+            id: String(id),
+            name,
+            pic,
+            gender,
+            constellation,
+            birthdate,
+            birthplace,
+            role,
+            intro,
+            works
+        };
+    } catch (e) {
+        console.warn('Fetch person failed', e);
+        return null;
+    }
 };
 
 /**
@@ -378,6 +467,68 @@ export const getMovieDetail = async (id: number | string, apiUrl?: string): Prom
   return null;
 };
 
+/**
+ * Helper: Find Detail in a specific source by keyword
+ */
+const fetchDetailFromSourceByKeyword = async (source: VodSource, keyword: string): Promise<VodDetail | null> => {
+    try {
+        // 1. Try ac=detail&wd=keyword
+        let url = `${source.api}?ac=detail&wd=${encodeURIComponent(keyword)}`;
+        let data = await fetchWithProxy(url);
+        
+        if (data && data.list && data.list.length > 0) {
+             const exact = data.list.find((v: any) => v.vod_name === keyword);
+             if (exact) {
+                 exact.api_url = source.api;
+                 return exact;
+             }
+             // If no exact match, but results exist, maybe pick first if close enough? 
+             // For now, strict exact match to avoid showing wrong movie sources.
+        }
+
+        // 2. Fallback: ac=list&wd=keyword -> get ID -> ac=detail
+        url = `${source.api}?ac=list&wd=${encodeURIComponent(keyword)}`;
+        data = await fetchWithProxy(url);
+        if (data && data.list && data.list.length > 0) {
+            const exact = data.list.find((v: any) => v.vod_name === keyword);
+            if (exact) {
+                 // Fetch full detail for this ID
+                 url = `${source.api}?ac=detail&ids=${exact.vod_id}`;
+                 const detailData = await fetchWithProxy(url);
+                 if (detailData && detailData.list && detailData.list.length > 0) {
+                     const detail = detailData.list[0];
+                     detail.api_url = source.api;
+                     return detail;
+                 }
+            }
+        }
+
+    } catch(e) {}
+    return null;
+}
+
+/**
+ * NEW: Aggregated Details Fetcher
+ * Fetches main detail + searches all other active sources for playback lines
+ */
+export const getAggregatedMovieDetail = async (id: number | string, apiUrl?: string): Promise<{ main: VodDetail, alternatives: VodDetail[] } | null> => {
+    // 1. Fetch Main Detail (Metadata + its sources)
+    const mainDetail = await getMovieDetail(id, apiUrl);
+    if (!mainDetail) return null;
+
+    const sources = getVodSources().filter(s => s.active);
+    // Filter out the source we just fetched from
+    const otherSources = sources.filter(s => s.api !== mainDetail.api_url);
+
+    // 2. Search other sources in parallel
+    const promises = otherSources.map(s => fetchDetailFromSourceByKeyword(s, mainDetail.vod_name));
+    const results = await Promise.all(promises);
+    
+    const alternatives = results.filter((r): r is VodDetail => r !== null);
+    
+    return { main: mainDetail, alternatives };
+};
+
 export const getDoubanPoster = async (keyword: string): Promise<string | null> => {
     const searchUrl = `https://movie.douban.com/j/subject_suggest?q=${encodeURIComponent(keyword)}`;
     const data = await fetchWithProxy(searchUrl);
@@ -387,84 +538,88 @@ export const getDoubanPoster = async (keyword: string): Promise<string | null> =
     return null; 
 };
 
-export const parseAllSources = (detail: VodDetail): PlaySource[] => {
-    if (!detail.vod_play_url || !detail.vod_play_from) return [];
-    
-    const fromArray = detail.vod_play_from.split('$$$');
-    const urlArray = detail.vod_play_url.split('$$$');
-    
-    // Resolve Source Name from Settings configuration
-    let sourceName = '默认源';
-    let isCustomSource = false;
+/**
+ * UPDATED: Accepts array of details (main + alternatives)
+ */
+export const parseAllSources = (input: VodDetail | VodDetail[]): PlaySource[] => {
+    const details = Array.isArray(input) ? input : [input];
+    const allSources: PlaySource[] = [];
 
-    if (detail.api_url) {
-        const sources = getVodSources();
-        const matched = sources.find(s => s.api === detail.api_url);
-        if (matched) {
-            sourceName = matched.name;
-            // Identify if this is a custom source (not default)
-            isCustomSource = matched.id !== 'default';
-        }
-    } else if (detail.source === 'douban') {
-        sourceName = '豆瓣推荐';
-    }
+    details.forEach(detail => {
+        if (!detail.vod_play_url || !detail.vod_play_from) return;
 
-    const sources: PlaySource[] = [];
-    
-    fromArray.forEach((code, idx) => {
-        const urlStr = urlArray[idx];
-        if (!urlStr) return;
-
-        // FILTER LOGIC:
-        // 1. If it's a Custom Source (user added), we TRUST it. Show everything.
-        // 2. If it's the Default Source, we enforce strict M3U8 filtering.
-        const isM3u8Code = code.toLowerCase().includes('m3u8');
-        const isM3u8Content = urlStr.includes('.m3u8');
+        const fromArray = detail.vod_play_from.split('$$$');
+        const urlArray = detail.vod_play_url.split('$$$');
         
-        // Relaxing the filter: If it's custom source, allow it. If default, must be m3u8.
-        if (!isCustomSource && !isM3u8Code && !isM3u8Content) {
-            return; // Skip non-m3u8 on default source
+        // Resolve Source Name
+        let sourceName = '默认源';
+        let isCustomSource = false;
+
+        if (detail.api_url) {
+            const sourcesCfg = getVodSources();
+            const matched = sourcesCfg.find(s => s.api === detail.api_url);
+            if (matched) {
+                sourceName = matched.name;
+                isCustomSource = matched.id !== 'default';
+            }
+        } else if (detail.source === 'douban') {
+            sourceName = '豆瓣推荐';
         }
-        
-        const episodes: Episode[] = [];
-        const lines = urlStr.split('#');
-        lines.forEach((line, epIdx) => {
-            const parts = line.split('$');
-            let title = parts.length > 1 ? parts[0] : `第 ${epIdx + 1} 集`;
-            const url = parts.length > 1 ? parts[1] : parts[0];
+
+        fromArray.forEach((code, idx) => {
+            const urlStr = urlArray[idx];
+            if (!urlStr) return;
+
+            // Strict Filter for Default Source only
+            if (!isCustomSource) {
+                 if (!code.toLowerCase().includes('m3u8') && !urlStr.includes('.m3u8')) {
+                     return;
+                 }
+            }
+
+            const episodes: Episode[] = [];
+            const lines = urlStr.split('#');
+            lines.forEach((line, epIdx) => {
+                const parts = line.split('$');
+                let title = parts.length > 1 ? parts[0] : `第 ${epIdx + 1} 集`;
+                const url = parts.length > 1 ? parts[1] : parts[0];
+                
+                if (
+                    title === code || 
+                    title.toLowerCase() === 'm3u8' || 
+                    title.toLowerCase() === 'mp4' || 
+                    title === sourceName ||
+                    title.startsWith('http') ||
+                    title.startsWith('//')
+                ) {
+                    title = `第 ${epIdx + 1} 集`;
+                }
+
+                 if (url && (url.startsWith('http') || url.startsWith('//'))) {
+                      const finalUrl = url.startsWith('//') ? `https:${url}` : url;
+                      episodes.push({ title, url: finalUrl, index: epIdx });
+                 }
+            });
             
-            // Clean up title if it matches the code or is generic junk
-            if (
-                title === code || 
-                title.toLowerCase() === 'm3u8' || 
-                title.toLowerCase() === 'mp4' || 
-                title === sourceName ||
-                title.startsWith('http') ||
-                title.startsWith('//')
-            ) {
-                title = `第 ${epIdx + 1} 集`;
-            }
+            if (episodes.length > 0) {
+                // Rename logic: Name + Code to avoid duplicates if same API has multiple formats
+                // Or if different APIs have same name (unlikely if user names them well)
+                let finalName = sourceName;
+                if (allSources.some(s => s.name === sourceName)) {
+                     finalName = `${sourceName} (${code})`;
+                }
+                
+                // If the code is different from m3u8 or standard, maybe append it for clarity
+                if (code.toLowerCase() !== 'm3u8' && code.toLowerCase() !== 'ffm3u8' && code !== sourceName) {
+                     finalName = `${sourceName} (${code})`;
+                }
 
-             if (url && (url.startsWith('http') || url.startsWith('//'))) {
-                  const finalUrl = url.startsWith('//') ? `https:${url}` : url;
-                  episodes.push({ title, url: finalUrl, index: epIdx });
-             }
+                allSources.push({ name: finalName, episodes });
+            }
         });
-        
-        if (episodes.length > 0) {
-            // Naming Strategy:
-            // If the source name already exists in our list (e.g. "Ruyi" already added from a previous player code),
-            // append the code to differentiate: "Ruyi (ruyim3u8)"
-            let finalName = sourceName;
-            if (sources.some(s => s.name === sourceName)) {
-                 finalName = `${sourceName} (${code})`;
-            }
-
-            sources.push({ name: finalName, episodes });
-        }
     });
 
-    return sources;
+    return allSources;
 }
 
 export const parseEpisodes = (urlStr: string, fromStr: string): Episode[] => {

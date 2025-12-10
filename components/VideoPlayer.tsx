@@ -84,7 +84,6 @@ function filterAdsFromM3U8(m3u8Content: string): string {
 // ================= API Configuration =================
 const DANMAKU_API_BASE = 'https://dm1.laidd.de5.net/5573108';
 const API_MATCH = `${DANMAKU_API_BASE}/api/v2/match`;
-const API_SEARCH_EPISODES = `${DANMAKU_API_BASE}/api/v2/search/episodes`;
 const API_COMMENT = `${DANMAKU_API_BASE}/api/v2/comment`;
 
 // GLOBAL CUSTOM PROXY
@@ -92,7 +91,6 @@ const GLOBAL_PROXY = 'https://daili.laidd.de5.net/?url=';
 
 // Memory Cache to speed up switching episodes in same series
 const DANMAKU_CACHE = new Map<string, number>(); // title_epIndex -> episodeId
-const ANIME_CACHE = new Map<string, number>();   // title -> animeId
 
 // Robust Fetch: Tries direct first, then proxy
 const robustFetch = async (url: string, forceProxy = false) => {
@@ -209,15 +207,25 @@ const fetchDanmaku = async (title: string, episodeIndex: number, videoUrl: strin
 
     let matchedEpisodeId: number | null = null;
 
-    // STRATEGY 1: Match API (Smart Virtual Filename)
-    // Try multiple standard naming conventions to maximize hit rate
+    // STRATEGY: Match API (Smart Virtual Filename) ONLY
+    // We try multiple standard naming conventions to maximize hit rate with the Match API
     const virtualFiles = [
-        `[Group] ${cleanTitle} - ${epStr}.mp4`,
-        `${cleanTitle} ${epStr}.mp4`,
+        `[Unknown] ${cleanTitle} - ${epStr}.mp4`,
         `${cleanTitle} - ${epStr}.mp4`,
+        `${cleanTitle} ${epStr}.mp4`,
         `${cleanTitle} 第${epStr}集.mp4`,
         `${cleanTitle} S01E${epStr}.mp4`
     ];
+
+    // If cleanTitle has spaces, also try dot-separated (common in torrents)
+    if (cleanTitle.includes(' ')) {
+        virtualFiles.push(`[Unknown] ${cleanTitle.replace(/\s+/g, '.')} - ${epStr}.mp4`);
+    }
+
+    // Try raw title if it differs significantly
+    if (title !== cleanTitle) {
+         virtualFiles.push(`[Unknown] ${title} - ${epStr}.mp4`);
+    }
 
     for (const fileName of virtualFiles) {
         try {
@@ -227,79 +235,10 @@ const fetchDanmaku = async (title: string, episodeIndex: number, videoUrl: strin
             
             if (matchData.isMatched && matchData.matches && matchData.matches.length > 0) {
                 matchedEpisodeId = matchData.matches[0].episodeId;
-                console.log(`Danmaku Matched via filename: ${fileName}`);
+                console.log(`Danmaku Matched via filename: ${fileName} -> ID: ${matchedEpisodeId}`);
                 break;
             }
         } catch (e) { /* continue */ }
-    }
-
-    // STRATEGY 2: Search API (Fallback)
-    if (!matchedEpisodeId) {
-        try {
-            const searchUrl = `${API_SEARCH_EPISODES}?anime=${encodeURIComponent(cleanTitle)}`;
-            const res = await robustFetch(searchUrl, false); 
-            const data = await res.json();
-            
-            if (data.animes && Array.isArray(data.animes)) {
-                // Scoring system to find best anime match
-                const scoredAnimes = data.animes.map((anime: any) => {
-                    let score = 0;
-                    const animeTitle = (anime.animeTitle || '').toLowerCase();
-                    const targetTitle = cleanTitle.toLowerCase();
-
-                    // Exact match
-                    if (animeTitle === targetTitle) score += 100;
-                    // Contains match
-                    else if (animeTitle.includes(targetTitle)) score += 60;
-                    else if (targetTitle.includes(animeTitle)) score += 50;
-
-                    // Season Check: If target has "Season 2" or "II", prefer similar in animeTitle
-                    const seasonRegex = /(?:Season\s*(\d+)|第\s*(\d+)\s*季|\s(II|III|IV|V)\s)/i;
-                    const targetSeason = title.match(seasonRegex);
-                    const animeSeason = animeTitle.match(seasonRegex);
-                    if (targetSeason && animeSeason && targetSeason[0] === animeSeason[0]) {
-                        score += 80;
-                    }
-
-                    // Type match penalty/bonus
-                    const isTargetMovie = title.includes('剧场版') || title.includes('电影');
-                    const isAnimeMovie = anime.type === 'movie' || animeTitle.includes('剧场版');
-                    if (isTargetMovie === isAnimeMovie) score += 30;
-
-                    return { ...anime, score };
-                }).sort((a: any, b: any) => b.score - a.score);
-
-                // Filter out low scores
-                const bestAnime = scoredAnimes[0];
-                
-                if (bestAnime && bestAnime.score > 40) {
-                    // Try to find episode
-                    // Regex patterns to match "01", "1", "01v2", "EP01", "第1话"
-                    const regexes = [
-                        new RegExp(`(?:^|\\s|第|EP|E|Vol\\.?|Episode)\\s*0*${episodeNum}(?:\\s|$|v\\d|集|话|END)`, 'i'),
-                        new RegExp(`^\\s*0*${episodeNum}\\s*$`),
-                    ];
-
-                    const targetEp = bestAnime.episodes.find((ep: any) => {
-                        let t = ep.episodeTitle || '';
-                        t = t.replace(/[【\[].*?[】\]]/g, '').trim(); 
-                        return regexes.some(r => r.test(t));
-                    });
-
-                    if (targetEp) {
-                        matchedEpisodeId = targetEp.episodeId;
-                    } else if (bestAnime.episodes.length > episodeIndex) {
-                        // Fallback to index if available and reasonably safe (e.g. series with enough eps)
-                        // Only do this for TV series where index usually aligns
-                        if (bestAnime.type === 'tvseries' || bestAnime.type === 'tv') {
-                             matchedEpisodeId = bestAnime.episodes[episodeIndex].episodeId;
-                        }
-                    }
-                }
-            }
-        } catch (e) {
-            console.warn('Danmaku fetch failed', e);
-        }
     }
 
     if (matchedEpisodeId) {

@@ -1,10 +1,11 @@
 
+
 import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom'; // Import Router hooks
-import { getHomeSections, searchDouban, searchCms, getMovieDetail, parseAllSources, enrichVodDetail, fetchDoubanData, fetchCategoryItems, getHistory, addToHistory, removeFromHistory } from './services/vodService';
+import { getHomeSections, searchDouban, searchCms, getAggregatedMovieDetail, parseAllSources, enrichVodDetail, fetchDoubanData, fetchCategoryItems, getHistory, addToHistory, removeFromHistory, fetchPersonDetail } from './services/vodService';
 import MovieInfoCard from './components/MovieInfoCard';
 import ImageWithFallback from './components/ImageWithFallback';
-import { VodItem, VodDetail, Episode, PlaySource, HistoryItem } from './types';
+import { VodItem, VodDetail, Episode, PlaySource, HistoryItem, PersonDetail } from './types';
 
 // Lazy Load Heavy Components
 const VideoPlayer = lazy(() => import('./components/VideoPlayer'));
@@ -526,11 +527,49 @@ const CategoryGrid = ({ category, onItemClick }: { category: string, onItemClick
     );
 };
 
+const PersonProfileCard = ({ person }: { person: PersonDetail }) => {
+    const [expanded, setExpanded] = useState(false);
+    return (
+        <div className="w-full bg-[#161b26] border border-white/5 rounded-2xl p-4 md:p-6 mb-8 flex flex-col md:flex-row gap-6 md:gap-8 shadow-xl animate-fade-in relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-brand/5 blur-[100px] rounded-full pointer-events-none"></div>
+            
+            <div className="w-32 h-44 md:w-40 md:h-56 flex-shrink-0 mx-auto md:mx-0 rounded-xl overflow-hidden shadow-2xl border border-white/10">
+                <ImageWithFallback src={person.pic} className="w-full h-full object-cover" />
+            </div>
+            
+            <div className="flex-1 text-gray-200">
+                <h2 className="text-3xl font-bold text-white mb-4">{person.name}</h2>
+                
+                <div className="grid grid-cols-2 gap-x-8 gap-y-2 mb-4 text-sm">
+                    {person.gender && <p><span className="text-gray-500 mr-2">性别:</span>{person.gender}</p>}
+                    {person.constellation && <p><span className="text-gray-500 mr-2">星座:</span>{person.constellation}</p>}
+                    {person.birthdate && <p><span className="text-gray-500 mr-2">出生日期:</span>{person.birthdate}</p>}
+                    {person.birthplace && <p><span className="text-gray-500 mr-2">出生地:</span>{person.birthplace}</p>}
+                    {person.role && <p className="col-span-2"><span className="text-gray-500 mr-2">职业:</span>{person.role}</p>}
+                </div>
+
+                {person.intro && (
+                    <div className="text-sm leading-relaxed text-gray-400">
+                        <span className="text-white font-bold block mb-1">简介</span>
+                        <p className={expanded ? '' : 'line-clamp-3'}>{person.intro}</p>
+                        {person.intro.length > 150 && (
+                             <button onClick={() => setExpanded(!expanded)} className="text-brand text-xs mt-1 hover:underline">
+                                 {expanded ? '收起' : '展开更多'}
+                             </button>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
 const App: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [loading, setLoading] = useState(false);
   const [searchResults, setSearchResults] = useState<VodItem[]>([]);
+  const [personProfile, setPersonProfile] = useState<PersonDetail | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [currentMovie, setCurrentMovie] = useState<VodDetail | null>(null);
   
@@ -739,6 +778,8 @@ const App: React.FC = () => {
       setSearchQuery(query);
       setLoading(true);
       setHasSearched(true);
+      setPersonProfile(null); // Reset profile
+
       if (activeTab !== 'search') {
           navigate(TAB_TO_URL['search']);
       }
@@ -746,18 +787,35 @@ const App: React.FC = () => {
           // SEARCH DOUBAN FOR RESULTS LIST
           const results = await searchDouban(query);
           
-          // Sort results prioritizing Exact Matches
-          const sortedResults = results.sort((a, b) => {
-              const lowerQuery = query.toLowerCase();
-              const aName = a.vod_name.toLowerCase();
-              const bName = b.vod_name.toLowerCase();
-              
-              if (aName === lowerQuery && bName !== lowerQuery) return -1;
-              if (bName === lowerQuery && aName !== lowerQuery) return 1;
-              return 0;
-          });
+          // Check if search returned a celebrity
+          const celebrity = results.find(r => r.type_name === 'celebrity');
           
-          setSearchResults(sortedResults);
+          if (celebrity) {
+             const detail = await fetchPersonDetail(celebrity.vod_id);
+             if (detail) {
+                 setPersonProfile(detail);
+                 // If the person has works, prioritize them in the list
+                 if (detail.works && detail.works.length > 0) {
+                     setSearchResults(detail.works);
+                 } else {
+                     setSearchResults(results.filter(r => r.type_name !== 'celebrity'));
+                 }
+             } else {
+                 setSearchResults(results);
+             }
+          } else {
+             // Sort results prioritizing Exact Matches
+             const sortedResults = results.sort((a, b) => {
+                  const lowerQuery = query.toLowerCase();
+                  const aName = a.vod_name.toLowerCase();
+                  const bName = b.vod_name.toLowerCase();
+                  
+                  if (aName === lowerQuery && bName !== lowerQuery) return -1;
+                  if (bName === lowerQuery && aName !== lowerQuery) return 1;
+                  return 0;
+              });
+              setSearchResults(sortedResults);
+          }
       } catch (error) {
           console.error("Search error", error);
       } finally {
@@ -828,9 +886,14 @@ const App: React.FC = () => {
       setSidePanelTab('episodes');
       
       try {
-          const detail = await getMovieDetail(id, apiUrl);
-          if (detail) {
-              const allSources = parseAllSources(detail);
+          // FETCH AGGREGATED DETAILS (Main Source + All Custom Sources)
+          const result = await getAggregatedMovieDetail(id, apiUrl);
+          
+          if (result && result.main) {
+              const { main, alternatives } = result;
+              
+              // PARSE ALL SOURCES: Merge main + alternatives
+              const allSources = parseAllSources([main, ...alternatives]);
               
               if (allSources.length > 0) {
                   // Prefer m3u8 source if available
@@ -840,10 +903,10 @@ const App: React.FC = () => {
                   setAvailableSources(allSources);
                   setCurrentSourceIndex(initialIndex);
                   setEpisodes(allSources[initialIndex].episodes);
-                  setCurrentMovie(detail);
+                  setCurrentMovie(main);
                   
                   // Restore episode index from localStorage
-                  const savedIndex = parseInt(localStorage.getItem(`cine_last_episode_${id}`) || '0');
+                  const savedIndex = parseInt(localStorage.getItem(`cine_last_episode_${main.vod_id}`) || '0');
                   if (!isNaN(savedIndex) && savedIndex >= 0 && savedIndex < allSources[initialIndex].episodes.length) {
                       setCurrentEpisodeIndex(savedIndex);
                   } else {
@@ -852,10 +915,10 @@ const App: React.FC = () => {
                   
                   window.scrollTo({ top: 0, behavior: 'smooth' });
 
-                  enrichVodDetail(detail).then(updates => {
+                  enrichVodDetail(main).then(updates => {
                       if (updates) {
                           setCurrentMovie(prev => {
-                              if (prev && String(prev.vod_id) === String(detail.vod_id)) {
+                              if (prev && String(prev.vod_id) === String(main.vod_id)) {
                                   return { ...prev, ...updates };
                               }
                               return prev;
@@ -1141,29 +1204,38 @@ const App: React.FC = () => {
                                 <div className="h-6 w-1 bg-brand rounded-full shadow-[0_0_10px_rgba(34,197,94,0.5)]"></div>
                                 <h3 className="text-xl font-bold text-white tracking-wide">搜索结果 (Douban)</h3>
                             </div>
+                            
+                            {personProfile && <PersonProfileCard person={personProfile} />}
 
                             {loading && searchResults.length === 0 ? (
                                 <div className="flex justify-center py-20">
                                     <div className="animate-spin h-10 w-10 border-4 border-brand border-t-transparent rounded-full"></div>
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-6">
-                                    {searchResults.map((item) => (
-                                        <div key={item.vod_id} onClick={() => handleItemClick(item)} className="group cursor-pointer relative bg-gray-900 rounded-lg overflow-hidden aspect-[2/3] ring-1 ring-white/5 hover:ring-brand hover:shadow-[0_0_20px_rgba(34,197,94,0.15)] transition-all duration-300 hover:-translate-y-1">
-                                            <ImageWithFallback src={item.vod_pic || ''} alt={item.vod_name || 'Poster'} searchKeyword={item.vod_name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
-                                            <div className="absolute top-0 right-0 p-1.5 z-10">
-                                                {item.vod_score && <span className="bg-black/60 backdrop-blur-md text-[10px] text-white px-1.5 py-0.5 rounded border border-white/10 shadow-lg">{item.vod_score}</span>}
-                                            </div>
-                                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent p-2 md:p-3 pt-12">
-                                                <h4 className="text-xs md:text-sm font-bold text-white truncate group-hover:text-brand transition-colors">{item.vod_name}</h4>
-                                                <div className="flex justify-between items-center mt-1 text-[10px] text-gray-400 font-medium">
-                                                    <span className="bg-white/10 px-1.5 py-0.5 rounded">{item.type_name || '影视'}</span>
-                                                    <span>{item.vod_year}</span>
+                                <>
+                                    {personProfile && (
+                                         <h4 className="text-lg font-bold text-gray-300 mb-4 pl-1 border-l-2 border-brand/50 flex items-center gap-2">
+                                            {personProfile.name} 的影视作品
+                                         </h4>
+                                    )}
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-6">
+                                        {searchResults.map((item) => (
+                                            <div key={item.vod_id} onClick={() => handleItemClick(item)} className="group cursor-pointer relative bg-gray-900 rounded-lg overflow-hidden aspect-[2/3] ring-1 ring-white/5 hover:ring-brand hover:shadow-[0_0_20px_rgba(34,197,94,0.15)] transition-all duration-300 hover:-translate-y-1">
+                                                <ImageWithFallback src={item.vod_pic || ''} alt={item.vod_name || 'Poster'} searchKeyword={item.vod_name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                                                <div className="absolute top-0 right-0 p-1.5 z-10">
+                                                    {item.vod_score && <span className="bg-black/60 backdrop-blur-md text-[10px] text-white px-1.5 py-0.5 rounded border border-white/10 shadow-lg">{item.vod_score}</span>}
+                                                </div>
+                                                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent p-2 md:p-3 pt-12">
+                                                    <h4 className="text-xs md:text-sm font-bold text-white truncate group-hover:text-brand transition-colors">{item.vod_name}</h4>
+                                                    <div className="flex justify-between items-center mt-1 text-[10px] text-gray-400 font-medium">
+                                                        <span className="bg-white/10 px-1.5 py-0.5 rounded">{item.type_name || '影视'}</span>
+                                                        <span>{item.vod_year}</span>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    ))}
-                                </div>
+                                        ))}
+                                    </div>
+                                </>
                             )}
                         </>
                       ) : activeTab === 'home' ? (
