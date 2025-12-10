@@ -66,9 +66,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
         saveVodSources(updated);
     };
 
-    const handleReset = () => {
+    const handleReset = async () => {
         if (confirm('恢复默认设置将清除所有自定义源，确定吗？')) {
-            const defaults = resetVodSources();
+            const defaults = await resetVodSources();
             setSources(defaults);
         }
     };

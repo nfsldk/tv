@@ -1,5 +1,19 @@
 
 import { Episode, VodDetail, ApiResponse, ActorItem, RecommendationItem, VodItem, VodSource, PlaySource, HistoryItem, PersonDetail } from '../types';
+import { createClient } from '@supabase/supabase-js';
+
+// --- SUPABASE SETUP ---
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || '';
+const SUPABASE_KEY = process.env.VITE_SUPABASE_KEY || '';
+
+let supabase: any = null;
+if (SUPABASE_URL && SUPABASE_KEY) {
+    try {
+        supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+    } catch (e) {
+        console.warn('Supabase init failed', e);
+    }
+}
 
 // DEFAULT SOURCE
 const DEFAULT_SOURCE: VodSource = {
@@ -17,6 +31,7 @@ const GLOBAL_PROXY = 'https://daili.laidd.de5.net/?url=';
 const HOME_CACHE_KEY = 'cine_home_data_v2';
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 const HISTORY_KEY = 'cine_watch_history';
+const SOURCES_KEY = 'cine_vod_sources';
 
 // --- HISTORY MANAGEMENT ---
 
@@ -57,11 +72,11 @@ export const clearHistory = () => {
     localStorage.removeItem(HISTORY_KEY);
 };
 
-// --- SOURCE MANAGEMENT ---
+// --- SOURCE MANAGEMENT (With Supabase Sync) ---
 
 export const getVodSources = (): VodSource[] => {
     try {
-        const stored = localStorage.getItem('cine_vod_sources');
+        const stored = localStorage.getItem(SOURCES_KEY);
         if (stored) {
             return JSON.parse(stored);
         }
@@ -70,30 +85,125 @@ export const getVodSources = (): VodSource[] => {
 };
 
 export const saveVodSources = (sources: VodSource[]) => {
-    localStorage.setItem('cine_vod_sources', JSON.stringify(sources));
+    localStorage.setItem(SOURCES_KEY, JSON.stringify(sources));
 };
 
-export const addVodSource = (name: string, api: string) => {
+// Initialize sources from Cloud (Supabase) if configured
+export const initVodSources = async () => {
+    if (!supabase) return;
+
+    try {
+        const { data, error } = await supabase
+            .from('cine_sources')
+            .select('*')
+            .order('created_at', { ascending: true });
+
+        if (!error && data) {
+            // Merge cloud sources with local default
+            const cloudSources = data.map((d: any) => ({
+                id: d.id,
+                name: d.name,
+                api: d.api,
+                active: d.active,
+                canDelete: true
+            }));
+
+            // Always keep default source, then append cloud sources
+            // We use the API url to dedup
+            const combined = [DEFAULT_SOURCE, ...cloudSources];
+            
+            // If user has local custom sources that are NOT in cloud, we might want to keep them or merge them.
+            // For simplicity in "Admin" mode, Cloud is Truth. 
+            // But to be safe, we merge:
+            const localSources = getVodSources();
+            const localCustoms = localSources.filter(s => s.id !== 'default');
+            
+            // If a local custom source is NOT in cloud, adding it to the end (optional, or just overwrite)
+            // Here we strictly overwrite with Cloud data to ensure consistency across browsers.
+            saveVodSources(combined);
+            console.log('Sources synced from Cloud');
+        }
+    } catch (e) {
+        console.error('Failed to sync sources', e);
+    }
+};
+
+export const addVodSource = async (name: string, api: string) => {
     const sources = getVodSources();
+    const newId = Date.now().toString();
     const newSource: VodSource = {
-        id: Date.now().toString(),
+        id: newId,
         name: name.trim(),
         api: api.trim(),
         active: true,
         canDelete: true
     };
+    
+    // Update Local
     saveVodSources([...sources, newSource]);
+
+    // Update Cloud
+    if (supabase) {
+        try {
+            await supabase.from('cine_sources').insert([
+                { name: newSource.name, api: newSource.api, active: true }
+            ]);
+            // Re-sync to get the real UUID from DB
+            await initVodSources();
+        } catch (e) {
+            console.error('Supabase add failed', e);
+        }
+    }
+    
     return newSource;
 };
 
-export const deleteVodSource = (id: string) => {
+export const deleteVodSource = async (id: string) => {
+    // Optimistic Update Local
     const sources = getVodSources();
+    // Get the source to find its API (assuming local ID might match or we delete by API/Name if ID differs)
+    // Actually, if we synced from Supabase, the ID in localStorage IS the Supabase ID (UUID).
+    // If it was created locally before sync, it's a timestamp.
+    
+    const target = sources.find(s => s.id === id);
     const filtered = sources.filter(s => s.id !== id);
     saveVodSources(filtered);
+
+    // Update Cloud
+    if (supabase && target) {
+        try {
+            // Try deleting by ID first
+            let { error } = await supabase.from('cine_sources').delete().eq('id', id);
+            // If error or no rows deleted (maybe ID mismatch due to timestamp vs UUID), try by API
+            if (error) {
+                 await supabase.from('cine_sources').delete().eq('api', target.api);
+            }
+        } catch (e) {
+            console.error('Supabase delete failed', e);
+        }
+    }
 };
 
-export const resetVodSources = () => {
-    localStorage.removeItem('cine_vod_sources');
+export const toggleVodSource = async (id: string) => {
+    const sources = getVodSources();
+    const target = sources.find(s => s.id === id);
+    if (!target) return;
+
+    const newActiveState = !target.active;
+    const updated = sources.map(s => s.id === id ? { ...s, active: newActiveState } : s);
+    saveVodSources(updated);
+
+    if (supabase) {
+        try {
+            await supabase.from('cine_sources').update({ active: newActiveState }).eq('id', id);
+        } catch (e) { console.error('Supabase update failed', e); }
+    }
+};
+
+export const resetVodSources = async () => {
+    localStorage.removeItem(SOURCES_KEY);
+    // Note: Resetting local doesn't wipe Cloud DB to prevent accidental data loss for all users.
+    // Use delete for that.
     return [DEFAULT_SOURCE];
 };
 
