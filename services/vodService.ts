@@ -3,16 +3,20 @@ import { Episode, VodDetail, ApiResponse, ActorItem, RecommendationItem, VodItem
 import { createClient } from '@supabase/supabase-js';
 
 // --- SUPABASE SETUP ---
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || '';
-const SUPABASE_KEY = process.env.VITE_SUPABASE_KEY || '';
+// Try import.meta.env (Vite standard) first, then fallback to process.env (legacy/polyfill)
+const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const SUPABASE_KEY = (import.meta as any).env?.VITE_SUPABASE_KEY || process.env.VITE_SUPABASE_KEY || '';
 
 let supabase: any = null;
 if (SUPABASE_URL && SUPABASE_KEY) {
     try {
         supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+        // console.log('Supabase initialized');
     } catch (e) {
         console.warn('Supabase init failed', e);
     }
+} else {
+    // console.warn('Supabase credentials missing. Cloud sync disabled.');
 }
 
 // DEFAULT SOURCE
@@ -108,20 +112,14 @@ export const initVodSources = async () => {
                 canDelete: true
             }));
 
-            // Always keep default source, then append cloud sources
-            // We use the API url to dedup
+            // Always keep default source
             const combined = [DEFAULT_SOURCE, ...cloudSources];
             
-            // If user has local custom sources that are NOT in cloud, we might want to keep them or merge them.
-            // For simplicity in "Admin" mode, Cloud is Truth. 
-            // But to be safe, we merge:
-            const localSources = getVodSources();
-            const localCustoms = localSources.filter(s => s.id !== 'default');
-            
-            // If a local custom source is NOT in cloud, adding it to the end (optional, or just overwrite)
-            // Here we strictly overwrite with Cloud data to ensure consistency across browsers.
+            // Overwrite local storage with Cloud truth to ensure sync
             saveVodSources(combined);
-            console.log('Sources synced from Cloud');
+            // console.log('Sources synced from Cloud:', combined.length);
+        } else if (error) {
+            console.error('Supabase fetch error:', error);
         }
     } catch (e) {
         console.error('Failed to sync sources', e);
@@ -130,7 +128,7 @@ export const initVodSources = async () => {
 
 export const addVodSource = async (name: string, api: string) => {
     const sources = getVodSources();
-    const newId = Date.now().toString();
+    const newId = Date.now().toString(); // Temporary local ID
     const newSource: VodSource = {
         id: newId,
         name: name.trim(),
@@ -139,7 +137,7 @@ export const addVodSource = async (name: string, api: string) => {
         canDelete: true
     };
     
-    // Update Local
+    // Update Local immediately
     saveVodSources([...sources, newSource]);
 
     // Update Cloud
@@ -161,10 +159,6 @@ export const addVodSource = async (name: string, api: string) => {
 export const deleteVodSource = async (id: string) => {
     // Optimistic Update Local
     const sources = getVodSources();
-    // Get the source to find its API (assuming local ID might match or we delete by API/Name if ID differs)
-    // Actually, if we synced from Supabase, the ID in localStorage IS the Supabase ID (UUID).
-    // If it was created locally before sync, it's a timestamp.
-    
     const target = sources.find(s => s.id === id);
     const filtered = sources.filter(s => s.id !== id);
     saveVodSources(filtered);
@@ -175,7 +169,7 @@ export const deleteVodSource = async (id: string) => {
             // Try deleting by ID first
             let { error } = await supabase.from('cine_sources').delete().eq('id', id);
             // If error or no rows deleted (maybe ID mismatch due to timestamp vs UUID), try by API
-            if (error) {
+            if (error || true) {
                  await supabase.from('cine_sources').delete().eq('api', target.api);
             }
         } catch (e) {
@@ -195,7 +189,9 @@ export const toggleVodSource = async (id: string) => {
 
     if (supabase) {
         try {
+            // Try update by ID, fallback to API match if needed
             await supabase.from('cine_sources').update({ active: newActiveState }).eq('id', id);
+            await supabase.from('cine_sources').update({ active: newActiveState }).eq('api', target.api);
         } catch (e) { console.error('Supabase update failed', e); }
     }
 };
@@ -204,6 +200,10 @@ export const resetVodSources = async () => {
     localStorage.removeItem(SOURCES_KEY);
     // Note: Resetting local doesn't wipe Cloud DB to prevent accidental data loss for all users.
     // Use delete for that.
+    if (supabase) {
+        await initVodSources(); // Re-fetch from cloud if available
+        return getVodSources();
+    }
     return [DEFAULT_SOURCE];
 };
 

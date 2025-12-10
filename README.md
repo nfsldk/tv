@@ -35,7 +35,7 @@ CineStream AI is a modern, high-definition video streaming platform featuring in
 
 1.  **Fork** this repository.
 2.  Log in to [Vercel](https://vercel.com/) and import the project.
-3.  **Environment Variables**:
+3.  **Environment Variables** (Add as **Plain Text**):
     -   `API_KEY`: Google Gemini API Key.
     -   `VITE_SUPABASE_URL`: (Optional) Your Supabase Project URL.
     -   `VITE_SUPABASE_KEY`: (Optional) Your Supabase Anon Key.
@@ -46,7 +46,10 @@ CineStream AI is a modern, high-definition video streaming platform featuring in
 1.  Log in to [Cloudflare Dashboard](https://dash.cloudflare.com/) -> **"Workers & Pages"** -> **"Create Application"**.
 2.  Connect Git repo.
 3.  **Build settings**: Preset `Vite`, Command `npm run build`, Output `dist`.
-4.  **Environment Variables**: Add keys for Gemini and Supabase.
+4.  **Environment Variables** (Use Plain Text / Not Encrypted): 
+    -   Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_KEY`.
+    -   Add `API_KEY`.
+5.  Click Deploy.
 
 #### 3. Database Setup (Cross-Browser Sync)
 
@@ -100,14 +103,17 @@ CineStream AI 是一个现代化的免费高清影视聚合平台，具备智能
 1.  登录 [Cloudflare Dashboard](https://dash.cloudflare.com/) -> **Workers & Pages** -> **创建应用程序**。
 2.  连接 Git 仓库。
 3.  **构建设置**: 框架预设 `Vite`，命令 `npm run build`，输出目录 `dist`。
-4.  **环境变量**: 添加 `API_KEY` (Gemini) 和 Supabase 相关变量。
+4.  **环境变量** (使用默认的明文/文本类型即可，无需加密):
+    -   `API_KEY`: 您的 Gemini API Key。
+    -   `VITE_SUPABASE_URL`: Supabase 项目地址。
+    -   `VITE_SUPABASE_KEY`: Supabase Anon Key。
 5.  点击部署。
 
 #### 2. Vercel
 
 1.  Fork 本项目。
 2.  在 Vercel 导入项目。
-3.  配置环境变量：
+3.  配置环境变量 (Plain Text):
     -   `API_KEY`: 您的 Gemini API Key。
     -   `VITE_SUPABASE_URL`: (可选) Supabase 项目地址。
     -   `VITE_SUPABASE_KEY`: (可选) Supabase Anon Key。
