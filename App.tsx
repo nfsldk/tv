@@ -94,31 +94,30 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
 
   return (
     <div 
-        className="relative w-full h-[55vh] min-h-[500px] md:h-[70vh] md:min-h-[600px] max-h-[800px] rounded-3xl overflow-hidden mb-12 group shadow-[0_20px_50px_rgba(0,0,0,0.5)] bg-[#050505] touch-pan-y border border-white/10"
+        className="relative w-full h-[210px] md:h-[360px] rounded-2xl overflow-hidden mb-8 md:mb-12 group shadow-2xl bg-[#0a0a0a] touch-pan-y border border-white/5"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
     >
-      {/* Background Layer (Large Poster) */}
-      <div key={activeItem.vod_id + '_bg'} className="absolute inset-0 animate-fade-in transition-all duration-1000">
+      {/* Background Layer */}
+      <div key={activeItem.vod_id + '_bg'} className="absolute inset-0 animate-fade-in transition-all duration-700">
           <ImageWithFallback 
               src={activeItem.vod_pic} 
               alt={activeItem.vod_name} 
-              className="w-full h-full object-cover object-center opacity-60 scale-105" 
+              className="w-full h-full object-cover blur-md opacity-40 scale-105" 
           />
-          {/* Strong Gradients to ensure text readability over clear background */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#020617] via-[#020617]/50 to-transparent z-0"></div>
-          <div className="absolute inset-0 bg-gradient-to-r from-[#020617] via-[#020617]/80 to-transparent z-0"></div>
+          <div className="absolute inset-0 bg-gradient-to-t from-[#020617] via-[#020617]/80 to-transparent z-0"></div>
+          <div className="absolute inset-0 bg-gradient-to-r from-[#020617] via-[#020617]/70 to-transparent z-0"></div>
       </div>
 
       {/* Content Container */}
       <div key={activeItem.vod_id + '_content'} className="absolute inset-0 z-10 flex items-center justify-center">
         <div className="container mx-auto px-4 md:px-12 w-full h-full flex items-center">
             {/* Force Row Layout on ALL screens (including mobile) */}
-            <div className="flex flex-row items-center gap-4 md:gap-12 w-full animate-slide-up">
+            <div className="flex flex-row items-center gap-4 md:gap-10 w-full animate-slide-up">
                 
                 {/* Poster: Visible & Sized for Mobile Side-by-Side */}
-                <div className="flex-shrink-0 w-[120px] md:w-[260px] aspect-[2/3] rounded-xl md:rounded-2xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.8)] border border-white/10 relative z-20 hover:scale-105 transition-transform duration-700 bg-black/50">
+                <div className="flex-shrink-0 w-[90px] md:w-[160px] aspect-[2/3] rounded-lg md:rounded-xl overflow-hidden shadow-[0_5px_20px_rgba(0,0,0,0.6)] border border-white/20 relative z-20 hover:scale-105 transition-transform duration-500 bg-black">
                     <ImageWithFallback 
                         src={activeItem.vod_pic} 
                         alt={activeItem.vod_name} 
@@ -127,56 +126,56 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
                 </div>
 
                 {/* Info Section: Always Left Aligned */}
-                <div className="flex-1 text-left space-y-2 md:space-y-6 flex flex-col items-start justify-center min-w-0">
+                <div className="flex-1 text-left space-y-1.5 md:space-y-4 flex flex-col items-start justify-center min-w-0">
                     
                     {/* Tags */}
-                    <div className="flex flex-wrap items-center justify-start gap-1.5 md:gap-3">
-                        <span className="bg-brand text-black text-[10px] md:text-sm font-black px-2 py-0.5 rounded-md uppercase tracking-wider shadow-lg shadow-brand/20">
+                    <div className="flex flex-wrap items-center justify-start gap-1.5 md:gap-2">
+                        <span className="bg-brand text-black text-[10px] md:text-xs font-black px-1.5 py-0.5 rounded uppercase tracking-wider">
                             {detail?.score || activeItem.vod_score || 'HOT'}
                         </span>
-                        <span className="bg-white/10 border border-white/10 text-gray-100 text-[10px] md:text-sm font-medium px-2 py-0.5 rounded-md backdrop-blur-md">
+                        <span className="bg-white/10 border border-white/10 text-gray-200 text-[10px] md:text-xs font-medium px-1.5 py-0.5 rounded backdrop-blur-md">
                             {activeItem.vod_year || '2025'}
                         </span>
-                        <span className="bg-white/10 border border-white/10 text-gray-100 text-[10px] md:text-sm font-medium px-2 py-0.5 rounded-md backdrop-blur-md">
+                        <span className="bg-white/10 border border-white/10 text-gray-200 text-[10px] md:text-xs font-medium px-1.5 py-0.5 rounded backdrop-blur-md">
                             {activeItem.type_name || detail?.type_name || '精选'}
                         </span>
                     </div>
 
                     {/* Title */}
-                    <h2 className="text-xl md:text-6xl lg:text-7xl font-black text-white leading-tight drop-shadow-2xl tracking-tight line-clamp-2">
+                    <h2 className="text-xl md:text-4xl font-black text-white leading-tight drop-shadow-xl tracking-tight line-clamp-2">
                         {activeItem.vod_name}
                     </h2>
 
                     {/* Sub-info */}
-                    <div className="text-gray-200 text-[10px] md:text-lg font-medium line-clamp-1 opacity-90 drop-shadow-md">
-                        {detail?.director && <span className="mr-4">导演: {detail.director}</span>}
+                    <div className="text-gray-300 text-[10px] md:text-sm font-medium line-clamp-1 opacity-90">
+                        {detail?.director && <span className="mr-2">导演: {detail.director}</span>}
                         {detail?.actor && <span>主演: {detail.actor}</span>}
                     </div>
 
                     {/* Description - Hidden on very small screens if too long, or clamp strictly */}
-                    <p className="text-gray-300 text-[10px] md:text-lg leading-relaxed line-clamp-3 md:line-clamp-4 drop-shadow-lg max-w-3xl hidden xs:block">
+                    <p className="text-gray-400 text-[10px] md:text-sm leading-relaxed line-clamp-2 md:line-clamp-3 drop-shadow-md max-w-2xl hidden xs:block">
                         {detail?.content ? detail.content.replace(/<[^>]+>/g, '') : (activeItem.vod_remarks || "暂无简介...")}
                     </p>
 
                     {/* Action Buttons */}
-                    <div className="pt-2 md:pt-4 flex flex-row gap-3 md:gap-5">
+                    <div className="pt-1 md:pt-2 flex flex-row gap-2 md:gap-4">
                         <button 
                             onClick={() => onPlay(activeItem)}
-                            className="bg-white text-black hover:bg-gray-200 text-xs md:text-lg font-bold px-4 py-2 md:px-10 md:py-4 rounded-full flex items-center gap-1.5 md:gap-3 transition-all hover:scale-105 shadow-[0_0_30px_rgba(255,255,255,0.3)] whitespace-nowrap"
+                            className="bg-white text-black hover:bg-gray-200 text-xs md:text-base font-bold px-4 py-1.5 md:px-8 md:py-3 rounded-full flex items-center gap-1 md:gap-2 transition-all hover:scale-105 shadow-lg whitespace-nowrap"
                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 md:w-7 md:h-7">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 md:w-5 md:h-5">
                                 <path fillRule="evenodd" d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653z" clipRule="evenodd" />
                             </svg>
-                            <span>立即播放</span>
+                            <span>播放</span>
                         </button>
                         
                         <button 
-                            className="bg-white/5 text-white hover:bg-white/10 border border-white/20 backdrop-blur-xl text-xs md:text-lg font-bold px-4 py-2 md:px-10 md:py-4 rounded-full flex items-center gap-1.5 md:gap-3 transition-all hover:scale-105 whitespace-nowrap shadow-xl"
+                            className="bg-white/10 text-white hover:bg-white/20 border border-white/10 backdrop-blur-md text-xs md:text-base font-bold px-4 py-1.5 md:px-8 md:py-3 rounded-full flex items-center gap-1 md:gap-2 transition-all hover:scale-105 whitespace-nowrap"
                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 md:w-7 md:h-7">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 md:w-5 md:h-5">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
                             </svg>
-                            <span>更多详情</span>
+                            <span>详情</span>
                         </button>
                     </div>
                 </div>
@@ -185,12 +184,12 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
       </div>
 
       {/* Indicators */}
-      <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex gap-3 z-20">
+      <div className="absolute bottom-3 md:bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 z-20">
           {items.map((_, idx) => (
               <button 
                   key={idx}
                   onClick={(e) => { e.stopPropagation(); setCurrentIndex(idx); }}
-                  className={`h-1.5 rounded-full transition-all duration-300 shadow-lg ${idx === currentIndex ? 'bg-brand w-8 md:w-12' : 'bg-white/20 w-2 md:w-3 hover:bg-white/50'}`}
+                  className={`h-1 md:h-1.5 rounded-full transition-all duration-300 ${idx === currentIndex ? 'bg-brand w-6 md:w-8' : 'bg-white/20 w-1.5 md:w-2 hover:bg-white/50'}`}
               />
           ))}
       </div>
@@ -198,15 +197,15 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
       {/* Arrows (Hidden on Mobile) */}
       <button 
         onClick={(e) => { e.stopPropagation(); handlePrev(); }}
-        className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/10 text-white/30 hover:bg-black/40 hover:text-white transition-all hidden md:flex backdrop-blur-md border border-white/5 hover:border-white/20 hover:scale-110"
+        className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/20 text-white/50 hover:bg-black/50 hover:text-white transition-all hidden md:flex backdrop-blur-sm border border-white/5"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
       </button>
       <button 
         onClick={(e) => { e.stopPropagation(); handleNext(); }}
-        className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/10 text-white/30 hover:bg-black/40 hover:text-white transition-all hidden md:flex backdrop-blur-md border border-white/5 hover:border-white/20 hover:scale-110"
+        className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/20 text-white/50 hover:bg-black/50 hover:text-white transition-all hidden md:flex backdrop-blur-sm border border-white/5"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
       </button>
     </div>
   );
@@ -219,16 +218,34 @@ const HorizontalSection = ({ title, items, id, onItemClick, onItemContextMenu }:
     onItemClick: (item: VodItem) => void,
     onItemContextMenu?: (e: React.MouseEvent, item: VodItem) => void
 }) => {
+    const scrollRef = useRef<HTMLDivElement>(null);
     if (!items || items.length === 0) return null;
+
+    const scroll = (direction: 'left' | 'right') => {
+        if (scrollRef.current) {
+            const { current } = scrollRef;
+            const scrollAmount = direction === 'left' ? -current.clientWidth * 0.75 : current.clientWidth * 0.75;
+            current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+        }
+    };
+
     return (
-        <div className="mb-8 animate-fade-in" id={id}>
+        <div className="mb-8 animate-fade-in group/section" id={id}>
             <div className="flex justify-between items-end mb-4 px-1">
                 <h3 className="text-xl md:text-2xl font-bold text-white flex items-center gap-2 border-l-4 border-brand pl-3">
                     {title}
                 </h3>
             </div>
             <div className="relative group">
-                <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar snap-x">
+                 {/* Left Arrow Button */}
+                 <button
+                    className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-black/60 hover:bg-brand text-white p-2 rounded-full opacity-0 group-hover/section:opacity-100 transition-all hidden md:flex border border-white/10 shadow-lg -ml-4"
+                    onClick={() => scroll('left')}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
+                </button>
+
+                <div ref={scrollRef} className="flex gap-4 overflow-x-auto pb-4 no-scrollbar snap-x scroll-smooth">
                     {items.map((item) => (
                         <div 
                             key={`${item.vod_id}-${(item as HistoryItem).last_updated || ''}`} 
@@ -251,6 +268,14 @@ const HorizontalSection = ({ title, items, id, onItemClick, onItemContextMenu }:
                         </div>
                     ))}
                 </div>
+
+                {/* Right Arrow Button */}
+                <button
+                    className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-black/60 hover:bg-brand text-white p-2 rounded-full opacity-0 group-hover/section:opacity-100 transition-all hidden md:flex border border-white/10 shadow-lg -mr-4"
+                    onClick={() => scroll('right')}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+                </button>
             </div>
         </div>
     );
@@ -637,6 +662,30 @@ const App: React.FC = () => {
   };
 
   const handleItemClick = async (item: VodItem) => {
+      if (item.type_name === 'celebrity') {
+        setLoading(true);
+        try {
+            const detail = await fetchPersonDetail(item.vod_id);
+            if (detail) {
+                setPersonProfile(detail);
+                if (detail.works && detail.works.length > 0) {
+                    setSearchResults(detail.works);
+                } else {
+                    setSearchResults([]);
+                }
+                // Scroll to top of results container if available
+                if (resultsRef.current) {
+                    resultsRef.current.scrollIntoView({ behavior: 'smooth' });
+                }
+            }
+        } catch (e) {
+            console.error("Failed to fetch person detail", e);
+        } finally {
+            setLoading(false);
+        }
+        return;
+      }
+
       if (item.api_url && item.source !== 'douban') {
           handleSelectMovie(item.vod_id, item.api_url);
           navigate(`/play/${item.vod_id}`);
@@ -1154,6 +1203,15 @@ const App: React.FC = () => {
                                                           <span className="bg-white/10 px-1.5 py-0.5 rounded text-[10px]">{item.type_name || '影视'}</span>
                                                       </div>
                                                   </div>
+                                                  
+                                                  {/* Special Overlay for Celebrity Items */}
+                                                  {item.type_name === 'celebrity' && (
+                                                      <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                                                          <button className="bg-brand text-black font-bold px-4 py-2 rounded-full transform scale-90 group-hover:scale-100 transition-transform">
+                                                              查看资料
+                                                          </button>
+                                                      </div>
+                                                  )}
                                               </div>
                                           ))}
                                       </div>
