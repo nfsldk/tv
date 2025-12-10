@@ -39,26 +39,75 @@ const TAB_TO_URL: Record<string, string> = {
 };
 
 const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodItem) => void }) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [detail, setDetail] = useState<any>(null);
-  const [activeItem, setActiveItem] = useState<VodItem | null>(null);
+  const [touchStart, setTouchStart] = useState(0);
+  const [touchEnd, setTouchEnd] = useState(0);
+  
+  // Auto-play interval
+  useEffect(() => {
+    if (items.length <= 1) return;
+    const interval = setInterval(() => {
+        handleNext();
+    }, 8000); // 8 seconds per slide
+    return () => clearInterval(interval);
+  }, [currentIndex, items.length]);
 
+  // Fetch details when index changes
   useEffect(() => {
       if (items && items.length > 0) {
-          const item = items[0];
-          setActiveItem(item);
-          // Fetch rich details (synopsis, director, etc.)
+          const item = items[currentIndex];
+          setDetail(null); // Clear previous detail momentarily to show change
           fetchDoubanData(item.vod_name, item.vod_id).then(res => {
               if (res) setDetail(res);
           });
       }
-  }, [items]);
+  }, [currentIndex, items]);
 
-  if (!activeItem) return null;
+  const handleNext = useCallback(() => {
+    setCurrentIndex((prev) => (prev + 1) % items.length);
+  }, [items.length]);
+
+  const handlePrev = useCallback(() => {
+    setCurrentIndex((prev) => (prev - 1 + items.length) % items.length);
+  }, [items.length]);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchStart(e.targetTouches[0].clientX);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    setTouchEnd(e.targetTouches[0].clientX);
+  };
+
+  const handleTouchEnd = () => {
+    if (!touchStart || !touchEnd) return;
+    const distance = touchStart - touchEnd;
+    const isLeftSwipe = distance > 50;
+    const isRightSwipe = distance < -50;
+
+    if (isLeftSwipe) {
+      handleNext();
+    }
+    if (isRightSwipe) {
+      handlePrev();
+    }
+    setTouchStart(0);
+    setTouchEnd(0);
+  };
+
+  if (!items || items.length === 0) return null;
+  const activeItem = items[currentIndex];
 
   return (
-    <div className="relative w-full h-[50vh] md:h-[65vh] rounded-2xl overflow-hidden mb-12 group shadow-2xl bg-gray-900">
+    <div 
+        className="relative w-full h-[50vh] md:h-[65vh] rounded-2xl overflow-hidden mb-12 group shadow-2xl bg-gray-900 touch-pan-y"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+    >
       {/* Background Layer - heavily blurred and darkened */}
-      <div className="absolute inset-0">
+      <div key={activeItem.vod_id + '_bg'} className="absolute inset-0 animate-fade-in transition-all duration-700">
           <ImageWithFallback 
               src={activeItem.vod_pic} 
               alt={activeItem.vod_name} 
@@ -69,7 +118,7 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
       </div>
 
       {/* Content Container */}
-      <div className="absolute inset-0 flex items-center z-10 p-6 md:p-12">
+      <div key={activeItem.vod_id + '_content'} className="absolute inset-0 flex items-center z-10 p-6 md:p-12 animate-slide-up">
         <div className="w-full max-w-7xl mx-auto flex flex-col md:flex-row items-center md:items-end gap-8 lg:gap-12">
             
             {/* Small Poster (Vertical) - Hidden on mobile, visible on Tablet+ */}
@@ -85,7 +134,7 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
             <div className="flex-1 text-center md:text-left space-y-4 md:space-y-6">
                 
                 {/* Metadata Tags */}
-                <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 animate-fade-in">
+                <div className="flex flex-wrap items-center justify-center md:justify-start gap-2">
                      <span className="bg-brand text-black text-xs font-black px-2 py-0.5 rounded uppercase tracking-wider">
                         {detail?.score || activeItem.vod_score || 'HOT'}
                      </span>
@@ -103,7 +152,7 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
                 </div>
 
                 {/* Title */}
-                <h2 className="text-3xl md:text-5xl lg:text-6xl font-black text-white leading-tight drop-shadow-xl animate-slide-up">
+                <h2 className="text-3xl md:text-5xl lg:text-6xl font-black text-white leading-tight drop-shadow-xl">
                     {activeItem.vod_name}
                 </h2>
 
@@ -116,7 +165,7 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
                 )}
 
                 {/* Description / Introduction */}
-                <p className="text-gray-300 text-sm md:text-base leading-relaxed max-w-2xl mx-auto md:mx-0 line-clamp-3 md:line-clamp-4 drop-shadow-md">
+                <p className="text-gray-300 text-sm md:text-base leading-relaxed max-w-2xl mx-auto md:mx-0 line-clamp-3 md:line-clamp-4 drop-shadow-md min-h-[4.5em]">
                     {detail?.content ? detail.content.replace(/<[^>]+>/g, '') : (activeItem.vod_remarks || "暂无简介，点击立即播放观看...")}
                 </p>
 
@@ -132,15 +181,36 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
                       </svg>
                       <span className="relative z-10">立即播放</span>
                    </button>
-                   
-                   {/* Optional: Detail button or similar */}
-                   {/* <button className="bg-white/10 hover:bg-white/20 text-white font-medium px-6 py-3 rounded-full backdrop-blur-md border border-white/10 transition-all">
-                       查看详情
-                   </button> */}
                 </div>
             </div>
         </div>
       </div>
+
+      {/* Carousel Indicators */}
+      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 z-20">
+          {items.map((_, idx) => (
+              <button 
+                  key={idx}
+                  onClick={(e) => { e.stopPropagation(); setCurrentIndex(idx); }}
+                  className={`h-1.5 rounded-full transition-all duration-300 ${idx === currentIndex ? 'bg-brand w-8' : 'bg-white/20 w-2 hover:bg-white/50'}`}
+                  aria-label={`Go to slide ${idx + 1}`}
+              />
+          ))}
+      </div>
+      
+      {/* Optional Left/Right Arrows for Desktop */}
+      <button 
+        onClick={(e) => { e.stopPropagation(); handlePrev(); }}
+        className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/20 text-white/50 hover:bg-black/50 hover:text-white transition-all hidden md:flex"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
+      </button>
+      <button 
+        onClick={(e) => { e.stopPropagation(); handleNext(); }}
+        className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/20 text-white/50 hover:bg-black/50 hover:text-white transition-all hidden md:flex"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+      </button>
     </div>
   );
 };
