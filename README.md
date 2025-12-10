@@ -271,6 +271,3 @@ npm run build
 
 ### 📄 许可证
 MIT License
-
-
-源：https://aistudio.google.com/apps/drive/18AErm3q4nDJg8bIUiCXSoqX85XSX4YIy?showAssistant=true&showCode=true

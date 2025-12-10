@@ -1,3 +1,4 @@
+
 import { Episode, VodDetail, ApiResponse, ActorItem, RecommendationItem, VodItem, VodSource, PlaySource, HistoryItem, PersonDetail } from '../types';
 
 // DEFAULT SOURCE
@@ -151,6 +152,33 @@ const fetchWithProxy = async (targetUrl: string, options: RequestInit = {}): Pro
       // console.warn(`Proxy fetch failed for ${targetUrl}`, e);
   }
   return null;
+};
+
+/**
+ * Helper: Fetch data from a CMS source with robust fallback (Direct -> Proxy) and force JSON
+ */
+const fetchCmsData = async (baseUrl: string, params: URLSearchParams): Promise<any> => {
+    // FORCE JSON output. Many CMS default to XML otherwise.
+    params.set('out', 'json');
+    const url = `${baseUrl}?${params.toString()}`;
+
+    // 1. Try Direct Fetch
+    try {
+        const res = await fetchWithTimeout(url, {}, 5000); // 5s timeout for direct
+        if (res.ok) {
+            const text = await res.text();
+            try { return JSON.parse(text); } catch (e) { /* Not JSON */ }
+        }
+    } catch (e) {
+        // Direct failed, ignore
+    }
+
+    // 2. Try Proxy Fetch
+    try {
+        return await fetchWithProxy(url);
+    } catch (e) {
+        return null;
+    }
 };
 
 /**
@@ -332,30 +360,29 @@ const searchAllCmsResources = async (keyword: string): Promise<VodItem[]> => {
 
     const promises = sources.map(async (source) => {
         try {
-            const url = `${source.api}?${params.toString()}`;
-            // 8s timeout for each source
-            const data = await fetchWithTimeout(url, {}, 8000).then(r => r.ok ? r.text().then(t => { try{ return JSON.parse(t) }catch(e){ return null } }) : null);
+            const data = await fetchCmsData(source.api, params);
             
-            // Check for both proxy response and direct response structure
-            let finalData = data;
-            if (!finalData) {
-                 // Try proxy if direct failed (handled by fetchWithProxy internally)
-                 finalData = await fetchWithProxy(url);
-            }
+            if (data && (data.list || data.code === 1)) {
+                const list = data.list || [];
+                 return list.map((item: any) => {
+                    // Check for bad images
+                    let pic = item.vod_pic || '';
+                    if (pic.includes('mac_default') || pic.includes('nopic') || pic.includes('no_pic')) {
+                        pic = '';
+                    }
 
-            if (finalData && (finalData.list || finalData.code === 1)) {
-                const list = finalData.list || [];
-                 return list.map((item: any) => ({
-                    vod_id: item.vod_id,
-                    vod_name: item.vod_name,
-                    vod_pic: item.vod_pic,
-                    vod_remarks: item.vod_remarks,
-                    type_name: item.type_name,
-                    vod_year: item.vod_year,
-                    vod_score: item.vod_score,
-                    source: 'cms',
-                    api_url: source.api // Crucial: Link this item back to its specific source API
-                }));
+                    return {
+                        vod_id: `cms_${item.vod_id}`, // Prefix ID to avoid collision with Douban
+                        vod_name: item.vod_name,
+                        vod_pic: pic,
+                        vod_remarks: item.vod_remarks,
+                        type_name: item.type_name,
+                        vod_year: item.vod_year,
+                        vod_score: item.vod_score,
+                        source: 'cms',
+                        api_url: source.api // Crucial: Link this item back to its specific source API
+                    };
+                });
             }
         } catch(e) {
             // console.warn(`Search failed for ${source.name}`, e);
@@ -383,11 +410,16 @@ export const getAggregatedSearch = async (keyword: string): Promise<VodItem[]> =
     cmsResults.forEach((item: VodItem) => {
         // If the CMS item name is NOT already in the Douban results, add it.
         // This ensures we show items that are unique to the resource sites (e.g. niche content, "写真").
-        // If it IS in Douban, we skip adding it to the list to prefer the high-quality Douban card.
-        // Clicking the Douban card will find this CMS source anyway.
-        if (!existingNames.has(item.vod_name)) {
+        // We trim spaces to ensure loose matching
+        const normalizedItemName = item.vod_name.trim();
+        
+        let exists = false;
+        // Check exact match
+        if (existingNames.has(normalizedItemName)) exists = true;
+        
+        if (!exists) {
              finalResults.push(item);
-             existingNames.add(item.vod_name);
+             existingNames.add(normalizedItemName);
         }
     });
 
@@ -485,6 +517,7 @@ export const fetchPersonDetail = async (id: string | number): Promise<PersonDeta
 /**
  * Search from CMS Resource Sites (for Playback Sources)
  * UPDATED: Now queries ALL active sources in parallel and returns aggregated results.
+ * Using fetchCmsData for robust JSON fetching.
  */
 export const searchCms = async (keyword: string, page = 1): Promise<ApiResponse> => {
   const sources = getVodSources().filter(s => s.active);
@@ -496,10 +529,9 @@ export const searchCms = async (keyword: string, page = 1): Promise<ApiResponse>
 
   // Query all sources in parallel
   const promises = sources.map(async (source) => {
-      const targetUrl = `${source.api}?${params.toString()}`;
       try {
-          const data = await fetchWithProxy(targetUrl);
-          if (typeof data === 'object' && (data.code === 1 || (Array.isArray(data.list) && data.list.length > 0))) {
+          const data = await fetchCmsData(source.api, params);
+          if (data && (data.code === 1 || (Array.isArray(data.list) && data.list.length > 0))) {
               const list = (data.list || []).map((item: any) => ({
                   ...item,
                   api_url: source.api 
@@ -507,7 +539,7 @@ export const searchCms = async (keyword: string, page = 1): Promise<ApiResponse>
               return list;
           }
       } catch(e) {
-          console.warn(`Search failed on source ${source.name}`, e);
+          // console.warn(`Search failed on source ${source.name}`, e);
       }
       return [];
   });
@@ -531,8 +563,7 @@ export const searchCms = async (keyword: string, page = 1): Promise<ApiResponse>
 export const getMovieDetail = async (id: number | string, apiUrl?: string): Promise<VodDetail | null> => {
   const params = new URLSearchParams({
       ac: 'detail',
-      ids: id.toString(),
-      out: 'json'
+      ids: id.toString()
   });
   
   const sourcesToTry = apiUrl 
@@ -540,9 +571,8 @@ export const getMovieDetail = async (id: number | string, apiUrl?: string): Prom
       : getVodSources().filter(s => s.active);
 
   for (const source of sourcesToTry) {
-      const targetUrl = `${source.api}?${params.toString()}`;
       try {
-          const data = await fetchWithProxy(targetUrl);
+          const data = await fetchCmsData(source.api, params);
           if (data && data.list && data.list.length > 0) {
               const detail = data.list[0] as VodDetail;
               // Ensure we carry over the API URL to match the source later
@@ -560,8 +590,8 @@ export const getMovieDetail = async (id: number | string, apiUrl?: string): Prom
 const fetchDetailFromSourceByKeyword = async (source: VodSource, keyword: string): Promise<VodDetail | null> => {
     try {
         // 1. Try ac=detail&wd=keyword
-        let url = `${source.api}?ac=detail&wd=${encodeURIComponent(keyword)}`;
-        let data = await fetchWithProxy(url);
+        const params = new URLSearchParams({ ac: 'detail', wd: keyword });
+        let data = await fetchCmsData(source.api, params);
         
         if (data && data.list && data.list.length > 0) {
              const exact = data.list.find((v: any) => v.vod_name === keyword);
@@ -572,14 +602,17 @@ const fetchDetailFromSourceByKeyword = async (source: VodSource, keyword: string
         }
 
         // 2. Fallback: ac=list&wd=keyword -> get ID -> ac=detail
-        url = `${source.api}?ac=list&wd=${encodeURIComponent(keyword)}`;
-        data = await fetchWithProxy(url);
+        // Some APIs behave differently for 'list' vs 'detail'
+        params.set('ac', 'list');
+        data = await fetchCmsData(source.api, params);
+        
         if (data && data.list && data.list.length > 0) {
             const exact = data.list.find((v: any) => v.vod_name === keyword);
             if (exact) {
                  // Fetch full detail for this ID
-                 url = `${source.api}?ac=detail&ids=${exact.vod_id}`;
-                 const detailData = await fetchWithProxy(url);
+                 const detailParams = new URLSearchParams({ ac: 'detail', ids: exact.vod_id });
+                 const detailData = await fetchCmsData(source.api, detailParams);
+                 
                  if (detailData && detailData.list && detailData.list.length > 0) {
                      const detail = detailData.list[0];
                      detail.api_url = source.api;
@@ -598,7 +631,10 @@ const fetchDetailFromSourceByKeyword = async (source: VodSource, keyword: string
  */
 export const getAggregatedMovieDetail = async (id: number | string, apiUrl?: string): Promise<{ main: VodDetail, alternatives: VodDetail[] } | null> => {
     // 1. Fetch Main Detail (Metadata + its sources)
-    const mainDetail = await getMovieDetail(id, apiUrl);
+    // Strip "cms_" prefix if present to get real ID
+    const realId = String(id).replace('cms_', '');
+    
+    const mainDetail = await getMovieDetail(realId, apiUrl);
     if (!mainDetail) return null;
 
     const sources = getVodSources().filter(s => s.active);
@@ -615,11 +651,24 @@ export const getAggregatedMovieDetail = async (id: number | string, apiUrl?: str
 };
 
 export const getDoubanPoster = async (keyword: string): Promise<string | null> => {
-    const searchUrl = `https://movie.douban.com/j/subject_suggest?q=${encodeURIComponent(keyword)}`;
-    const data = await fetchWithProxy(searchUrl);
-    if (Array.isArray(data) && data.length > 0 && data[0].img) {
-        return data[0].img.replace(/s_ratio_poster|m(?=\/public)/, 'l');
-    }
+    // 1. Try Suggest API
+    try {
+        const suggestUrl = `https://movie.douban.com/j/subject_suggest?q=${encodeURIComponent(keyword)}`;
+        const data = await fetchWithProxy(suggestUrl);
+        if (Array.isArray(data) && data.length > 0 && data[0].img) {
+            return data[0].img.replace(/s_ratio_poster|m(?=\/public)/, 'l');
+        }
+    } catch(e) {}
+
+    // 2. Fallback to Search Subjects API (Broader search)
+    try {
+        const searchUrl = `https://movie.douban.com/j/search_subjects?type=movie&tag=&q=${encodeURIComponent(keyword)}&page_limit=1&page_start=0`;
+        const data = await fetchWithProxy(searchUrl);
+        if (data && data.subjects && data.subjects.length > 0 && data.subjects[0].cover) {
+             return data.subjects[0].cover.replace(/s_ratio_poster|m(?=\/public)/, 'l');
+        }
+    } catch(e) {}
+
     return null; 
 };
 

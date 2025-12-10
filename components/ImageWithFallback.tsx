@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { getDoubanPoster } from '../services/vodService';
 
@@ -6,6 +7,9 @@ const FALLBACK_IMG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/sv
 const CACHE_PREFIX = 'poster_cache_v2_';
 // User Custom Proxy
 const PROXY_URL = 'https://daili.laidd.de5.net/?url=';
+
+// Common CMS placeholders that should be ignored
+const BAD_IMAGE_PATTERNS = ['nopic', 'mac_default', 'no_pic', 'default.jpg'];
 
 interface ImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
   src: string;
@@ -19,7 +23,8 @@ const ImageWithFallback: React.FC<ImageProps> = ({ src, alt, className, searchKe
   useEffect(() => {
     let url = src?.trim();
     
-    if (!url) {
+    // If URL is missing OR is a known bad placeholder, try fallback immediately
+    if (!url || BAD_IMAGE_PATTERNS.some(p => url.includes(p))) {
       if (searchKeyword) {
           setImgSrc(FALLBACK_IMG);
           setRetryStage(2);
@@ -65,9 +70,9 @@ const ImageWithFallback: React.FC<ImageProps> = ({ src, alt, className, searchKe
     if (originalUrl.startsWith('//')) originalUrl = 'https:' + originalUrl;
     else if (originalUrl && !originalUrl.startsWith('http')) originalUrl = 'http://' + originalUrl;
 
-    if (!originalUrl) return;
-
-    localStorage.removeItem(CACHE_PREFIX + originalUrl);
+    if (originalUrl) {
+        localStorage.removeItem(CACHE_PREFIX + originalUrl);
+    }
 
     // If initial load via proxy failed, it's likely a bad URL or timeout.
     // Try smart search as fallback.
@@ -94,7 +99,9 @@ const ImageWithFallback: React.FC<ImageProps> = ({ src, alt, className, searchKe
           let originalUrl = src.trim();
           if (originalUrl.startsWith('//')) originalUrl = 'https:' + originalUrl;
           try {
-              localStorage.setItem(CACHE_PREFIX + originalUrl, imgSrc);
+              if (originalUrl && !BAD_IMAGE_PATTERNS.some(p => originalUrl.includes(p))) {
+                  localStorage.setItem(CACHE_PREFIX + originalUrl, imgSrc);
+              }
           } catch (e) {}
       }
   };
