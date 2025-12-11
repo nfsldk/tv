@@ -280,20 +280,12 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
   const artRef = useRef<Artplayer | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
-  const latestOnEnded = useRef(onEnded);
-  const latestOnNext = useRef(onNext);
-
-  // Generate a progress key that is consistent across different sources for the same content
-  const progressKey = useMemo(() => {
-      return (vodId && episodeIndex !== undefined) 
-        ? `cine_progress_${vodId}_${episodeIndex}` 
-        : `cine_progress_${url}`;
-  }, [vodId, episodeIndex, url]);
-
+  // Use a ref to store latest props for use inside Artplayer callbacks
+  // This allows us to avoid re-initializing the player when simple props change (like onNext reference)
+  const propsRef = useRef(props);
   useEffect(() => {
-    latestOnEnded.current = onEnded;
-    latestOnNext.current = onNext;
-  }, [onEnded, onNext]);
+      propsRef.current = props;
+  }, [props]);
 
   useImperativeHandle(ref, () => ({
       getInstance: () => artRef.current
@@ -343,39 +335,29 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
       return () => observer.disconnect();
   }, []);
 
+  // Initialization Effect (Run Once)
   useEffect(() => {
-      if (!containerRef.current || !url) return;
+      if (!containerRef.current) return;
       
-      // Force cleanup of existing instance
-      if (artRef.current && artRef.current.destroy) {
-           try {
-              if (artRef.current.mini) artRef.current.mini = false;
-              if (artRef.current.pip) artRef.current.pip = false;
-          } catch(e){}
-          artRef.current.destroy(true);
-      }
-
-      let hasSkippedHead = false;
-      let isSkippingTail = false;
-
       const DEFAULT_SKIP_HEAD = 90;
       const DEFAULT_SKIP_TAIL = 120;
+      let hasSkippedHead = false;
+      let isSkippingTail = false;
       const autoNext = true; 
 
       let skipHead = parseInt(localStorage.getItem('art_skip_head') || String(DEFAULT_SKIP_HEAD));
       let skipTail = parseInt(localStorage.getItem('art_skip_tail') || String(DEFAULT_SKIP_TAIL));
-
       let danmakuEnabled = true;
 
       const art = new Artplayer({
           container: containerRef.current,
-          url: url,
-          poster: poster,
-          autoplay: autoplay,
+          url: propsRef.current.url, // Use initial url
+          poster: propsRef.current.poster,
+          autoplay: propsRef.current.autoplay,
           volume: 0.7,
           isLive: false,
           muted: false,
-          autoMini: false, // DISABLED BUILT-IN: Use custom IntersectionObserver for better mobile control
+          autoMini: false, // DISABLED BUILT-IN: Use custom IntersectionObserver
           screenshot: false, 
           setting: true,
           pip: true,
@@ -401,12 +383,12 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
               artplayerPluginDanmuku({
                   danmuku: async () => {
                       try {
-                          const data = await fetchDanmaku(title || '', episodeIndex, url);
+                          // Use propsRef to get fresh values for danmaku query
+                          const { title, episodeIndex, url } = propsRef.current;
+                          const data = await fetchDanmaku(title || '', episodeIndex || 0, url);
                           if (artRef.current) {
                                if (data.length > 0) {
                                    artRef.current.notice.show = `弹幕加载成功: ${data.length}条`;
-                               } else {
-                                   // artRef.current.notice.show = '未找到匹配弹幕';
                                }
                           }
                           return data;
@@ -435,7 +417,17 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                 html: ICONS.next,
                 tooltip: '下一集',
                 style: { cursor: 'pointer', display: 'flex', alignItems: 'center', marginLeft: '2px' },
-                click: function (item: any) { if (latestOnNext.current) latestOnNext.current(); },
+                click: function (item: any) { 
+                    if (propsRef.current.onNext) propsRef.current.onNext(); 
+                },
+             },
+             {
+                name: 'p2p-info',
+                position: 'right',
+                index: 20,
+                html: '<div style="display:flex;align-items:center;gap:4px;"><span style="width:6px;height:6px;border-radius:50%;background:#94a3b8;box-shadow:0 0 4px #94a3b8;"></span><span style="font-size:11px;opacity:0.8;">P2P准备中</span></div>',
+                tooltip: '智能P2P加速',
+                style: { marginRight: '10px', cursor: 'help', display: 'flex', alignItems: 'center' }
              }
           ],
           settings: [
@@ -497,6 +489,12 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
           ],
           customType: {
               m3u8: function (video: HTMLVideoElement, url: string, art: any) {
+                  // Ensure previous HLS instance is destroyed if this is a switchUrl call
+                  if (art.hls) {
+                      art.hls.destroy();
+                      art.hls = null;
+                  }
+
                   if (Hls.isSupported()) {
                       class CustomLoader extends Hls.DefaultConfig.loader {
                           constructor(config: any) { super(config); }
@@ -524,15 +522,56 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                           pLoader: CustomLoader as any,
                       });
 
+                      // === P2P Engine Enhancement ===
                       if (P2PEngine && (P2PEngine as any).isSupported()) {
                           try {
-                            new (P2PEngine as any)(hls, {
-                                maxBufSize: 120 * 1000 * 1000,
+                            const engine = new (P2PEngine as any)(hls, {
+                                maxBufSize: 1024 * 1024 * 1024, // 1GB Cache
                                 p2pEnabled: true,
-                            }).on('stats', (stats: any) => {
-                                // stats collection
+                                trackerZone: 'hk', // Better for Asian connectivity
+                                logLevel: 'warn',
                             });
-                          } catch (e) {}
+                            
+                            let p2pBytes = 0;
+                            let httpBytes = 0;
+                            
+                            const updateP2PDisplay = () => {
+                                const el = art.controls['p2p-info'];
+                                if(el) {
+                                    const total = p2pBytes + httpBytes;
+                                    const ratio = total > 0 ? Math.round((p2pBytes / total) * 100) : 0;
+                                    const peers = engine.peers ? engine.peers.length : 0;
+                                    
+                                    let color = '#22c55e'; // Green
+                                    if (peers === 0) color = '#94a3b8'; // Grey
+                                    else if (ratio > 50) color = '#3b82f6'; // Blue
+                                    
+                                    el.innerHTML = `
+                                        <div style="display:flex;align-items:center;gap:6px;font-family:monospace;">
+                                            <span style="width:6px;height:6px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color};"></span>
+                                            <span style="font-size:11px;color:#e2e8f0;">
+                                                P2P: <span style="color:${color};font-weight:bold;">${peers}</span>节点 
+                                                | <span style="color:${ratio > 0 ? '#4ade80' : '#94a3b8'}">省流${ratio}%</span>
+                                            </span>
+                                        </div>
+                                    `;
+                                    el.title = `已通过P2P下载: ${(p2pBytes/1024/1024).toFixed(1)}MB\n已通过HTTP下载: ${(httpBytes/1024/1024).toFixed(1)}MB`;
+                                }
+                            };
+
+                            engine.on('stats', (stats: any) => {
+                                p2pBytes = stats.totalP2PDownloaded;
+                                httpBytes = stats.totalHTTPDownloaded;
+                                updateP2PDisplay();
+                            });
+                            
+                            engine.on('peers', () => {
+                                updateP2PDisplay();
+                            });
+
+                          } catch (e) {
+                              console.warn('P2P Init Error', e);
+                          }
                       }
 
                       hls.loadSource(url);
@@ -548,9 +587,13 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
           },
       });
       
-      art.on('ready', () => {
-          // Restore progress from shared key
-          const savedTimeStr = localStorage.getItem(progressKey);
+      const restoreProgress = () => {
+          const { vodId, episodeIndex, url } = propsRef.current;
+          const key = (vodId && episodeIndex !== undefined) 
+            ? `cine_progress_${vodId}_${episodeIndex}` 
+            : `cine_progress_${url}`;
+            
+          const savedTimeStr = localStorage.getItem(key);
           if (savedTimeStr) {
               const savedTime = parseFloat(savedTimeStr);
               if (!isNaN(savedTime) && savedTime > 5 && savedTime < art.duration - 5) {
@@ -558,14 +601,20 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                   art.notice.show = `已恢复至 ${formatTime(savedTime)}`;
               }
           }
-      });
+      };
 
-      artRef.current = art;
+      art.on('ready', restoreProgress);
+      art.on('restart', restoreProgress);
 
       art.on('video:timeupdate', function() {
           if (art.currentTime > 0) {
-              localStorage.setItem(progressKey, String(art.currentTime));
+              const { vodId, episodeIndex, url } = propsRef.current;
+              const key = (vodId && episodeIndex !== undefined) 
+                ? `cine_progress_${vodId}_${episodeIndex}` 
+                : `cine_progress_${url}`;
+              localStorage.setItem(key, String(art.currentTime));
           }
+          
           const currentSkipHead = parseInt(localStorage.getItem('art_skip_head') || String(DEFAULT_SKIP_HEAD));
           const currentSkipTail = parseInt(localStorage.getItem('art_skip_tail') || String(DEFAULT_SKIP_TAIL));
           
@@ -582,9 +631,15 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
               const rem = art.duration - art.currentTime;
               if (rem > 0 && rem <= currentSkipTail) {
                   isSkippingTail = true;
-                  if (autoNext && latestOnNext.current) {
+                  if (autoNext && propsRef.current.onNext) {
                       art.notice.show = '即将播放下一集';
-                      setTimeout(() => { if (latestOnNext.current) latestOnNext.current(); }, 1000); 
+                      // Use a debounce or flag to prevent multiple triggers
+                      // But for simplicity, we rely on the parent to handle index change which will unmount or update prop
+                      // With switchUrl, we need to be careful not to loop.
+                      // propsRef.current.onNext() will trigger url change which triggers switchUrl.
+                      setTimeout(() => { 
+                          if (propsRef.current.onNext && isSkippingTail) propsRef.current.onNext(); 
+                      }, 1000); 
                   }
               }
           }
@@ -593,35 +648,51 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
       art.on('seek', () => { isSkippingTail = false; });
       art.on('restart', () => { isSkippingTail = false; hasSkippedHead = false; });
       art.on('video:ended', () => {
-         localStorage.removeItem(progressKey);
-         if (autoNext && latestOnNext.current) latestOnNext.current();
+         const { vodId, episodeIndex, url } = propsRef.current;
+         const key = (vodId && episodeIndex !== undefined) ? `cine_progress_${vodId}_${episodeIndex}` : `cine_progress_${url}`;
+         localStorage.removeItem(key);
+         if (autoNext && propsRef.current.onNext) propsRef.current.onNext();
       });
+
+      artRef.current = art;
 
       return () => {
           if (artRef.current) {
-              // Critical Fix: Save progress exactly before destruction (e.g. source switching)
-              try {
-                  const currentTime = artRef.current.currentTime;
-                  if (currentTime > 0) {
-                       localStorage.setItem(progressKey, String(currentTime));
-                  }
-              } catch(e) {}
-
+              // Standard destroy
               try {
                   if (artRef.current.mini) artRef.current.mini = false;
                   if (artRef.current.pip) artRef.current.pip = false;
                   if (artRef.current.fullscreen) artRef.current.fullscreen = false;
-              } catch (e) {
-                   console.warn("Error cleaning up player modes:", e);
-              }
+              } catch (e) { }
               
               if (artRef.current.destroy) {
-                  artRef.current.destroy(true); // true = remove DOM and clean up events
+                  artRef.current.destroy(true); 
                   artRef.current = null;
               }
           }
       };
-  }, [url, autoplay, poster, title, episodeIndex, vodId]); 
+  }, []); // Run once on mount
+
+  // Handle URL changes via switchUrl (Seamless Playback)
+  useEffect(() => {
+      const art = artRef.current;
+      if (art && url && url !== art.url) {
+          art.switchUrl(url).then(() => {
+              // Reload Danmaku with new props
+              if (art.plugins.artplayerPluginDanmuku && typeof art.plugins.artplayerPluginDanmuku.load === 'function') {
+                  art.plugins.artplayerPluginDanmuku.load();
+              }
+              art.notice.show = '';
+          });
+      }
+  }, [url]);
+
+  // Handle Poster changes
+  useEffect(() => {
+      if (artRef.current && poster && poster !== artRef.current.poster) {
+          artRef.current.poster = poster;
+      }
+  }, [poster]);
 
   return (
       <div className={`w-full aspect-video lg:aspect-auto lg:h-full bg-black group relative z-0 ${className || ''}`}>
