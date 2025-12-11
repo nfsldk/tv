@@ -1299,22 +1299,30 @@ const App: React.FC = () => {
                                           {searchResults.map((item) => (
                                               <div key={item.vod_id} onClick={() => handleItemClick(item)} className="group cursor-pointer bg-gray-900 rounded-xl overflow-hidden aspect-[2/3] relative border border-white/5 hover:border-brand/50 transition-all duration-300 hover:-translate-y-1 shadow-lg hover:shadow-brand/10">
                                                   <ImageWithFallback src={item.vod_pic || ''} alt={item.vod_name} searchKeyword={item.vod_name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
-                                                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12">
+                                                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/90 to-transparent p-3 pt-16">
                                                       <h4 className="text-sm font-bold text-white truncate group-hover:text-brand transition-colors">{item.vod_name}</h4>
-                                                      <div className="flex justify-between items-center mt-1 text-xs text-gray-400">
+                                                      <div className="flex justify-between items-center mt-1 text-xs text-gray-400 mb-2">
                                                           <span>{item.vod_year || 'N/A'}</span>
                                                           <span className="bg-white/10 px-1.5 py-0.5 rounded text-[10px]">{item.type_name || '影视'}</span>
                                                       </div>
-                                                  </div>
-                                                  
-                                                  {/* Special Overlay for Celebrity Items */}
-                                                  {item.type_name === 'celebrity' && (
-                                                      <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                                                          <button className="bg-brand text-black font-bold px-4 py-2 rounded-full transform scale-90 group-hover:scale-100 transition-transform">
-                                                              查看资料
+                                                      
+                                                      {/* Visible View Details Button for Celebrities */}
+                                                      {item.type_name === 'celebrity' && (
+                                                          <button 
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleItemClick(item);
+                                                            }}
+                                                            className="w-full bg-brand text-black text-xs font-bold py-1.5 rounded flex items-center justify-center gap-1 hover:bg-brand-hover transition-colors"
+                                                          >
+                                                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
+                                                                  <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
+                                                                  <path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                                                              </svg>
+                                                              查看详细资料
                                                           </button>
-                                                      </div>
-                                                  )}
+                                                      )}
+                                                  </div>
                                               </div>
                                           ))}
                                       </div>
