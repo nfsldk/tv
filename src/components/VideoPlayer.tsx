@@ -203,6 +203,9 @@ const fetchDanmaku = async (title: string, episodeIndex: number, videoUrl: strin
     }
 
     const cleanTitle = getSearchTerm(title);
+    // Create a compact version of the title (no spaces) for robust matching (e.g. "Title 2" vs "Title2")
+    const titleNoSpaces = cleanTitle.replace(/\s+/g, '');
+    
     const episodeNum = episodeIndex + 1;
     const epStr = episodeNum < 10 ? `0${episodeNum}` : `${episodeNum}`;
     
@@ -211,11 +214,15 @@ const fetchDanmaku = async (title: string, episodeIndex: number, videoUrl: strin
     let matchedEpisodeId: number | null = null;
 
     // STRATEGY 1: Match API (Smart Virtual Filename) - Fastest & Most Accurate
+    // We try both spaced and non-spaced versions to handle different conventions
     const virtualFiles = [
         `[Unknown] ${cleanTitle} - ${epStr}.mp4`,
+        `[Unknown] ${titleNoSpaces} - ${epStr}.mp4`, // Handle compact naming
         `${cleanTitle} - ${epStr}.mp4`,
+        `${titleNoSpaces} - ${epStr}.mp4`,
         `${cleanTitle} ${epStr}.mp4`,
         `${cleanTitle} 第${epStr}集.mp4`,
+        `${titleNoSpaces} 第${epStr}集.mp4`,
         `${cleanTitle} S01E${epStr}.mp4`
     ];
 
@@ -242,9 +249,17 @@ const fetchDanmaku = async (title: string, episodeIndex: number, videoUrl: strin
     if (!matchedEpisodeId) {
         try {
             console.log('Match failed, trying Smart Search...');
-            const searchUrl = `${API_SEARCH_EPISODES}?anime=${encodeURIComponent(cleanTitle)}&episode=${episodeNum}`;
-            const searchRes = await robustFetch(searchUrl, false);
-            const searchData = await searchRes.json();
+            // Try searching with the original spaced title first
+            let searchUrl = `${API_SEARCH_EPISODES}?anime=${encodeURIComponent(cleanTitle)}&episode=${episodeNum}`;
+            let searchRes = await robustFetch(searchUrl, false);
+            let searchData = await searchRes.json();
+
+            // If no result, try the compact title
+            if ((!searchData.animes || searchData.animes.length === 0) && titleNoSpaces !== cleanTitle) {
+                 searchUrl = `${API_SEARCH_EPISODES}?anime=${encodeURIComponent(titleNoSpaces)}&episode=${episodeNum}`;
+                 searchRes = await robustFetch(searchUrl, false);
+                 searchData = await searchRes.json();
+            }
 
             if (searchData.animes && searchData.animes.length > 0) {
                 // Heuristic: The first anime result is usually the most relevant for a specific query

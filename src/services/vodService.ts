@@ -578,6 +578,10 @@ export const fetchPersonDetail = async (id: string | number): Promise<PersonDeta
             const subjectId = link.match(/subject\/(\d+)/)?.[1];
             const picUrl = (img?.getAttribute('src') || '').replace(/s_ratio_poster|m(?=\/public)/, 'l');
             const rating = li.querySelector('.rating')?.textContent?.trim() || '';
+
+            // Try to extract year from text content (e.g. 2024)
+            const yearMatch = li.textContent?.match(/(\d{4})/);
+            const year = yearMatch ? yearMatch[1] : '';
             
             if (subjectId && title) {
                  return {
@@ -587,7 +591,7 @@ export const fetchPersonDetail = async (id: string | number): Promise<PersonDeta
                     vod_score: rating,
                     type_name: '影视',
                     source: 'douban',
-                    vod_year: ''
+                    vod_year: year
                  } as VodItem;
             }
             return null;
@@ -739,22 +743,8 @@ const fetchDetailFromSourceByKeyword = async (source: VodSource, keyword: string
 }
 
 /**
- * NEW: Fetch alternatives for a given video details from other sources
- */
-export const getAlternativeVodDetails = async (mainDetail: VodDetail): Promise<VodDetail[]> => {
-    const sources = getVodSources().filter(s => s.active);
-    // Filter out the source we just fetched from
-    const otherSources = sources.filter(s => s.api !== mainDetail.api_url);
-
-    // Search other sources in parallel
-    const promises = otherSources.map(s => fetchDetailFromSourceByKeyword(s, mainDetail.vod_name));
-    const results = await Promise.all(promises);
-    
-    return results.filter((r): r is VodDetail => r !== null);
-};
-
-/**
- * NEW: Aggregated Details Fetcher (Deprecated mostly, but kept for compatibility)
+ * NEW: Aggregated Details Fetcher
+ * Fetches main detail + searches all other active sources for playback lines
  */
 export const getAggregatedMovieDetail = async (id: number | string, apiUrl?: string): Promise<{ main: VodDetail, alternatives: VodDetail[] } | null> => {
     // 1. Fetch Main Detail (Metadata + its sources)
@@ -764,8 +754,32 @@ export const getAggregatedMovieDetail = async (id: number | string, apiUrl?: str
     const mainDetail = await getMovieDetail(realId, apiUrl);
     if (!mainDetail) return null;
 
-    const alternatives = await getAlternativeVodDetails(mainDetail);
+    const sources = getVodSources().filter(s => s.active);
+    // Filter out the source we just fetched from
+    const otherSources = sources.filter(s => s.api !== mainDetail.api_url);
+
+    // 2. Search other sources in parallel
+    const promises = otherSources.map(s => fetchDetailFromSourceByKeyword(s, mainDetail.vod_name));
+    const results = await Promise.all(promises);
+    
+    const alternatives = results.filter((r): r is VodDetail => r !== null);
+    
     return { main: mainDetail, alternatives };
+};
+
+/**
+ * Fetch alternative details from other active sources based on main detail's name
+ */
+export const getAlternativeVodDetails = async (mainDetail: VodDetail): Promise<VodDetail[]> => {
+    const sources = getVodSources().filter(s => s.active);
+    // Filter out the source of the main detail
+    const otherSources = sources.filter(s => s.api !== mainDetail.api_url);
+
+    // Search other sources in parallel
+    const promises = otherSources.map(s => fetchDetailFromSourceByKeyword(s, mainDetail.vod_name));
+    const results = await Promise.all(promises);
+    
+    return results.filter((r): r is VodDetail => r !== null);
 };
 
 export const getDoubanPoster = async (keyword: string): Promise<string | null> => {
