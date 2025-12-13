@@ -39,6 +39,31 @@ const TAB_TO_URL: Record<string, string> = {
     'search': '/sousuo'
 };
 
+// Error Boundary for Video Player
+class PlayerErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true };
+  }
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("Player Error:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="w-full h-full bg-black flex items-center justify-center text-red-500 flex-col gap-2">
+           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-10 h-10"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+           <span className="text-sm">播放器加载失败</span>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodItem) => void }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [detail, setDetail] = useState<any>(null);
@@ -55,7 +80,7 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
 
   useEffect(() => {
       if (items && items.length > 0) {
-          const idx = currentIndex % items.length; // Safety clamp
+          const idx = currentIndex % items.length;
           const item = items[idx];
           if (item) {
               setDetail(null);
@@ -95,7 +120,6 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
   };
 
   if (!items || items.length === 0) return null;
-  // Safety check: ensure activeItem exists even if index is out of sync
   const activeItem = items[currentIndex % items.length];
   if (!activeItem) return null;
 
@@ -507,10 +531,9 @@ const App: React.FC = () => {
           const pathParts = location.pathname.split('/');
           const path = pathParts[1] || '';
           const tab = URL_TO_TAB[path] || 'home';
-          setActiveTab(tab);
+          if (activeTab !== tab) setActiveTab(tab);
           setHasSearched(tab === 'search');
           
-          // Clear movie if navigating away from play page
           if (currentMovie) {
                setCurrentMovie(null);
           }
@@ -525,7 +548,6 @@ const App: React.FC = () => {
           const idParam = pathParts[2];
           const state = location.state as any;
           
-          // Use an ignore flag for cleanup/race condition handling
           let ignore = false;
 
           const fetchData = async () => {
@@ -1025,19 +1047,21 @@ const App: React.FC = () => {
                               
                               <div className="flex flex-col lg:flex-row gap-6 items-start h-auto relative transition-all duration-300">
                                   <div className={`flex-1 w-full min-h-[300px] bg-black rounded-xl overflow-hidden border border-white/5 shadow-2xl relative group transition-all duration-300 z-10 ${!showSidePanel ? 'lg:h-[650px]' : 'lg:h-[500px]'}`}>
-                                      <Suspense fallback={<div className="w-full h-full bg-black flex items-center justify-center"><div className="animate-spin h-10 w-10 border-4 border-brand border-t-transparent rounded-full"></div></div>}>
-                                          <VideoPlayer 
-                                              key={currentMovie.vod_id} // Force remount if ID changes
-                                              url={currentEpUrl} 
-                                              poster={currentMovie.vod_pic}
-                                              title={currentMovie.vod_name}
-                                              episodeIndex={currentEpisodeIndex}
-                                              doubanId={currentMovie.vod_douban_id}
-                                              vodId={currentMovie.vod_id}
-                                              onEnded={handleEpisodeEnd}
-                                              onNext={handleNextEpisode}
-                                          />
-                                      </Suspense>
+                                      <PlayerErrorBoundary>
+                                          <Suspense fallback={<div className="w-full h-full bg-black flex items-center justify-center"><div className="animate-spin h-10 w-10 border-4 border-brand border-t-transparent rounded-full"></div></div>}>
+                                              <VideoPlayer 
+                                                  key={currentMovie.vod_id} // Force remount if ID changes
+                                                  url={currentEpUrl} 
+                                                  poster={currentMovie.vod_pic}
+                                                  title={currentMovie.vod_name}
+                                                  episodeIndex={currentEpisodeIndex}
+                                                  doubanId={currentMovie.vod_douban_id}
+                                                  vodId={currentMovie.vod_id}
+                                                  onEnded={handleEpisodeEnd}
+                                                  onNext={handleNextEpisode}
+                                              />
+                                          </Suspense>
+                                      </PlayerErrorBoundary>
                                       {!showSidePanel && (
                                           <button onClick={() => setShowSidePanel(true)} className="absolute top-4 right-4 z-20 bg-black/60 backdrop-blur-md text-white/90 border border-white/10 rounded-full px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-brand/20 hover:border-brand/30 hover:text-brand transition-all shadow-lg opacity-0 group-hover:opacity-100">
                                               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
