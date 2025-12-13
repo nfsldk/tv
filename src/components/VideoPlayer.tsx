@@ -27,6 +27,35 @@ const ICONS = {
 const DANMAKU_API_BASE = 'https://dm1.laidd.de5.net/5573108';
 const GLOBAL_PROXY = 'https://daili.laidd.de5.net/?url=';
 
+// --- M3U8 Ad Filtering Logic ---
+function filterAdsFromM3U8(m3u8Content: string) {
+    if (!m3u8Content) return '';
+    const lines = m3u8Content.split('\n');
+    const filteredLines = [];
+    let inAdBlock = false;
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.includes('EXT-X-CUE-OUT') || line.includes('SCTE35') || (line.includes('DATERANGE') && line.includes('SCTE35'))) { inAdBlock = true; continue; }
+        if (line.includes('EXT-X-CUE-IN')) { inAdBlock = false; continue; }
+        if (inAdBlock || line.includes('EXT-X-DISCONTINUITY')) continue;
+        filteredLines.push(lines[i]);
+    }
+    return filteredLines.join('\n');
+}
+
+function resolveRelativePaths(content: string, baseUrl: string) {
+    const lines = content.split('\n');
+    return lines.map(line => {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('http') && !trimmed.startsWith('blob:')) {
+             try {
+                 return new URL(trimmed, baseUrl).href;
+             } catch(e) { return line; }
+        }
+        return line;
+    }).join('\n');
+}
+
 const robustFetch = async (url: string) => {
     const headers = { 'Accept': 'application/json' };
     const proxyUrl = `${GLOBAL_PROXY}${encodeURIComponent(url)}`;
@@ -75,9 +104,9 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
   useEffect(() => {
       if (!containerRef.current) return;
       
-      // Cleanup previous instance
+      // Force cleanup with TRUE to remove DOM nodes
       if (artRef.current) {
-          artRef.current.destroy(false);
+          artRef.current.destroy(true);
           artRef.current = null;
       }
 
@@ -109,7 +138,7 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
               type: 'm3u8', 
               poster: propsRef.current.poster,
               autoplay: propsRef.current.autoplay,
-              muted: propsRef.current.autoplay, // Muted autoplay is required by most browsers to avoid blocking
+              muted: propsRef.current.autoplay, // Muted autoplay to ensure video starts
               volume: 0.7,
               isLive: false,
               autoMini: true,
@@ -144,7 +173,7 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                  }
               ],
               customType: {
-                  m3u8: function (video: HTMLVideoElement, url: string, art: any) {
+                  m3u8: async function (video: HTMLVideoElement, url: string, art: any) {
                       if (!url) {
                           art.notice.show = '请选择播放源';
                           return;
@@ -160,6 +189,28 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                       if (Hls.isSupported()) {
                           if (art.hls) art.hls.destroy();
                           
+                          let playUrl = url;
+                          
+                          // --- M3U8 Filtering Logic ---
+                          // Attempt to fetch, filter ads, and create Blob URL
+                          try {
+                              console.log('Attempting to filter ads from M3U8...');
+                              const response = await fetch(url);
+                              if (response.ok) {
+                                  const rawText = await response.text();
+                                  const filteredText = filterAdsFromM3U8(rawText);
+                                  // IMPORTANT: We must resolve relative paths because Blob URL changes the base
+                                  const resolvedText = resolveRelativePaths(filteredText, url);
+                                  
+                                  const blob = new Blob([resolvedText], { type: 'application/vnd.apple.mpegurl' });
+                                  playUrl = URL.createObjectURL(blob);
+                                  console.log('Ad filtering successful, using Blob URL');
+                              }
+                          } catch (e) {
+                              console.warn('Ad filtering fetch failed (likely CORS), falling back to direct URL.', e);
+                              playUrl = url;
+                          }
+
                           const hls = new Hls({ 
                               debug: false, 
                               enableWorker: true,
@@ -190,7 +241,6 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                           // Try P2P Engine with robust import handling
                           try {
                               let EngineClass: any = P2PEngine;
-                              // Handle ESM/CommonJS interop issues with CDN imports
                               if (typeof P2PEngine !== 'function' && (P2PEngine as any).default) {
                                   EngineClass = (P2PEngine as any).default;
                               }
@@ -199,6 +249,8 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                                   new EngineClass(hls, {
                                       maxBufSize: 1024 * 1024 * 1024,
                                       p2pEnabled: true,
+                                      // CRITICAL: Use original URL as channelId to ensure P2P works even if we use Blob URL
+                                      channelId: function(url: string) { return url; } 
                                   });
                                   console.log('P2P Engine enabled');
                               }
@@ -206,10 +258,9 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                               console.warn('P2P Engine failed to initialize, using standard HLS.', e);
                           }
                           
-                          // Attach media first, then load source (Recommended flow)
                           hls.attachMedia(video);
                           hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-                              hls.loadSource(url);
+                              hls.loadSource(playUrl);
                           });
                           
                           art.hls = hls;
@@ -218,6 +269,10 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                               if (art.hls) {
                                   art.hls.destroy();
                                   art.hls = null;
+                              }
+                              // Revoke Blob URL to free memory
+                              if (playUrl.startsWith('blob:')) {
+                                  URL.revokeObjectURL(playUrl);
                               }
                           });
                       } else {
@@ -234,7 +289,6 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
               (art as any).resize();
               
               if (propsRef.current.autoplay) {
-                   // Try to play
                    art.play().catch(e => {
                        console.warn('Autoplay blocked, trying muted', e);
                        art.muted = true;
@@ -245,13 +299,16 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
           
           artRef.current = art;
 
+          // Force Resize to ensure visibility
+          setTimeout(() => { if(artRef.current) (artRef.current as any).resize(); }, 500);
+
       } catch (e) {
           console.error("Artplayer init fatal error:", e);
       }
 
       return () => {
           if (artRef.current) {
-              artRef.current.destroy(false);
+              artRef.current.destroy(true); // TRUE = Remove from DOM
               artRef.current = null;
           }
       };
