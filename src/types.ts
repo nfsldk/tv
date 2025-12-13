@@ -1,3 +1,4 @@
+
 export interface VodItem {
   vod_id: number | string;
   vod_name: string;
@@ -13,6 +14,7 @@ export interface VodItem {
   api_url?: string;
   vod_actor?: string;
   vod_director?: string;
+  vod_douban_id?: string;
 }
 
 export interface HistoryItem extends VodItem {

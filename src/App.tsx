@@ -95,7 +95,7 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
 
   return (
     <div 
-        className="relative w-full h-[210px] md:h-[360px] rounded-2xl overflow-hidden mb-8 md:mb-12 group shadow-2xl bg-[#0a0a0a] touch-pan-y border border-white/5"
+        className="relative w-full h-[520px] md:h-[420px] rounded-2xl overflow-hidden mb-8 md:mb-12 group shadow-2xl bg-[#0a0a0a] touch-pan-y border border-white/5"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -677,7 +677,8 @@ const App: React.FC = () => {
             }
 
             if (foundVideo) {
-                await handleSelectMovie(foundVideo.vod_id, foundVideo.api_url);
+                // IMPORTANT: Pass foundVideo.api_url here
+                await handleSelectMovie(foundVideo.vod_id, foundVideo.api_url, doubanId);
                 setCurrentMovie(prev => {
                     if(!prev) return null;
                     return {
@@ -717,8 +718,15 @@ const App: React.FC = () => {
               } else {
                   const rawId = idParam.replace(/^cms_/, '');
                   const currentRawId = String(currentMovie?.vod_id || '').replace(/^cms_/, '');
+                  
+                  // Extract state passed from navigate
+                  const state = location.state as any;
+                  const doubanId = state?.doubanId;
+                  const apiUrl = state?.apiUrl; // IMPORTANT: Get the API URL from state if available
+
+                  // Avoid refetch if we are already showing this movie
                   if (!currentMovie || currentRawId !== rawId) {
-                      handleSelectMovie(idParam);
+                      handleSelectMovie(idParam, apiUrl, doubanId);
                   }
               }
           }
@@ -854,9 +862,15 @@ const App: React.FC = () => {
         return;
       }
 
+      // Updated Logic: Only navigate, let useEffect handle the fetch
       if (item.api_url) {
-          handleSelectMovie(item.vod_id, item.api_url);
-          navigate(`/play/${item.vod_id}`);
+          // Pass both doubanId (for metadata) and api_url (for source) in state
+          navigate(`/play/${item.vod_id}`, { 
+              state: { 
+                  doubanId: item.vod_douban_id,
+                  apiUrl: item.api_url 
+              } 
+          });
           return;
       }
 
@@ -869,7 +883,7 @@ const App: React.FC = () => {
       navigate(`/play/${item.vod_id}`);
   };
 
-  const handleSelectMovie = async (id: number | string, apiUrl?: string) => {
+  const handleSelectMovie = async (id: number | string, apiUrl?: string, doubanId?: string) => {
       setLoading(true);
       setShowSidePanel(true);
       setSidePanelTab('episodes');
@@ -890,6 +904,8 @@ const App: React.FC = () => {
                   setAvailableSources(allSources);
                   setCurrentSourceIndex(initialIndex);
                   setEpisodes(allSources[initialIndex].episodes);
+                  
+                  if (doubanId) main.vod_douban_id = doubanId;
                   setCurrentMovie(main);
                   
                   const savedIndex = parseInt(localStorage.getItem(`cine_last_episode_${main.vod_id}`) || '0');
