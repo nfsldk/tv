@@ -71,16 +71,35 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
   useEffect(() => {
       if (!containerRef.current) return;
       
-      // Cleanup existing instance
       if (artRef.current) {
           artRef.current.destroy(true);
           artRef.current = null;
       }
 
       try {
+          const plugins = [];
+          if (artplayerPluginDanmuku) {
+              plugins.push(artplayerPluginDanmuku({
+                  danmuku: async () => {
+                      try {
+                          return await fetchDanmaku(propsRef.current.title || '', propsRef.current.episodeIndex || 0);
+                      } catch (e) { return []; }
+                  },
+                  speed: 10,
+                  opacity: 1,
+                  fontSize: 25,
+                  color: '#FFFFFF',
+                  mode: 0,
+                  margin: [10, '75%'],
+                  antiOverlap: true,
+                  synchronousPlayback: true,
+              }));
+          }
+
           const art = new Artplayer({
               container: containerRef.current,
               url: propsRef.current.url || '',
+              type: 'm3u8', // Explicitly set type to ensure customType is used
               poster: propsRef.current.poster,
               autoplay: propsRef.current.autoplay,
               volume: 0.7,
@@ -91,26 +110,14 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
               fullscreenWeb: true,
               theme: '#22c55e',
               lang: 'zh-cn',
-              moreVideoAttr: { crossOrigin: 'anonymous', playsInline: true, 'webkit-playsinline': true } as any,
-              plugins: [
-                  artplayerPluginDanmuku({
-                      danmuku: async () => {
-                          try {
-                              return await fetchDanmaku(propsRef.current.title || '', propsRef.current.episodeIndex || 0);
-                          } catch (e) {
-                              return [];
-                          }
-                      },
-                      speed: 10,
-                      opacity: 1,
-                      fontSize: 25,
-                      color: '#FFFFFF',
-                      mode: 0,
-                      margin: [10, '75%'],
-                      antiOverlap: true,
-                      synchronousPlayback: true,
-                  }),
-              ],
+              // Force mobile playback behavior
+              moreVideoAttr: { 
+                  crossOrigin: 'anonymous', 
+                  playsInline: true, 
+                  'webkit-playsinline': true,
+                  'x5-video-player-type': 'h5-page' 
+              } as any,
+              plugins: plugins,
               controls: [
                  {
                     name: 'next-episode',
@@ -124,18 +131,22 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
               ],
               customType: {
                   m3u8: function (video: HTMLVideoElement, url: string, art: any) {
-                      if (!url) return;
-                      
-                      // Clean up previous HLS instance if switching
+                      // Safe HLS cleanup
                       if (art.hls) {
                           art.hls.destroy();
                           art.hls = null;
                       }
 
+                      // Native HLS (Safari/iOS)
+                      if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                          video.src = url;
+                          return;
+                      }
+
+                      // Hls.js
                       if (Hls.isSupported()) {
                           const hls = new Hls({ debug: false, enableWorker: true });
                           
-                          // Robust Error Handling
                           hls.on(Hls.Events.ERROR, function (event, data) {
                                if (data.fatal) {
                                    switch (data.type) {
@@ -147,37 +158,35 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                                        break;
                                    default:
                                        hls.destroy();
-                                       art.notice.show = `Playback Error: ${data.type}`;
+                                       // Only show error if playback actually fails completely
+                                       console.error('HLS Fatal Error:', data);
                                        break;
                                    }
                                }
                            });
 
-                          // P2P Initialization with Safety Check
+                          // P2P Setup with strict safety checks
                           try {
-                              if (P2PEngine && (P2PEngine as any).isSupported && (P2PEngine as any).isSupported()) {
+                              if (P2PEngine && P2PEngine.isSupported && P2PEngine.isSupported()) {
                                   new (P2PEngine as any)(hls, {
                                       maxBufSize: 1024 * 1024 * 1024,
                                       p2pEnabled: true,
                                   });
                               }
-                          } catch (p2pErr) {
-                              console.warn("P2P Init Failed:", p2pErr);
+                          } catch (e) {
+                              console.warn('P2P Engine not available or failed:', e);
                           }
                           
                           hls.loadSource(url);
                           hls.attachMedia(video);
                           art.hls = hls;
                           
-                          // Hook into destroy event
                           art.on('destroy', () => {
                               if (art.hls) {
                                   art.hls.destroy();
                                   art.hls = null;
                               }
                           });
-                      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                          video.src = url;
                       } else {
                           art.notice.show = 'Unsupported playback format: m3u8';
                       }
@@ -187,6 +196,10 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
 
           art.on('video:ended', () => { if (propsRef.current.onNext) propsRef.current.onNext(); });
           artRef.current = art;
+          
+          // Force resize after init to ensure controls appear
+          setTimeout(() => (art as any).resize(), 100);
+
       } catch (e) {
           console.error("Artplayer init error:", e);
       }
@@ -202,16 +215,23 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
   useEffect(() => {
       const art = artRef.current;
       if (art && url && url !== art.url) {
-          art.switchUrl(url).then(() => {
+          console.log('Switching video URL to:', url);
+          (art as any).switchUrl(url, 'm3u8').then(() => {
               if (art.plugins.artplayerPluginDanmuku) {
                   (art.plugins.artplayerPluginDanmuku as any).load();
               }
-          }).catch(() => {});
+              // Auto-play might be blocked by browser, try catching
+              if (autoplay) {
+                  art.play().catch(() => console.warn('Autoplay blocked'));
+              }
+          }).catch((err: any) => {
+              console.error('Switch URL failed:', err);
+          });
       }
-  }, [url]);
+  }, [url, autoplay]);
 
   return (
-      <div className={`w-full aspect-video lg:aspect-auto lg:h-full bg-black group relative z-0 ${className || ''}`}>
+      <div className={`w-full aspect-video lg:h-full bg-black group relative z-0 ${className || ''}`}>
           <div ref={containerRef} className="w-full h-full" />
       </div>
   );
