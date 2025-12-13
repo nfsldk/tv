@@ -26,7 +26,7 @@ const URL_TO_TAB: Record<string, string> = {
     'dongman': 'anime',
     'zongyi': 'variety',
     'sousuo': 'search',
-    'play': 'play_page' // Important: Added explicit mapping for play route
+    'play': 'play_page' 
 };
 
 const TAB_TO_URL: Record<string, string> = {
@@ -475,6 +475,92 @@ const App: React.FC = () => {
   useEffect(() => {
       initVodSources();
   }, []);
+
+  // SEO Logic: Tencent Style
+  useEffect(() => {
+      const path = location.pathname;
+      const setMeta = (name: string, content: string) => {
+          let element = document.querySelector(`meta[name="${name}"]`);
+          if (!element) {
+              element = document.createElement('meta');
+              element.setAttribute('name', name);
+              document.head.appendChild(element);
+          }
+          element.setAttribute('content', content);
+      };
+      
+      let title = '';
+      let desc = '';
+      let keywords = '';
+
+      // 1. Home
+      if (path === '/') {
+          title = 'CineStream AI - 免费高清电影电视剧在线观看_2025最新好看的影视大全';
+          desc = 'CineStream AI为您提供最新最热的电影、电视剧、动漫、综艺高清在线观看。海量资源，秒播不卡，支持智能AI互动，致力于为您提供极致的观影体验。';
+          keywords = '电影,电视剧,综艺,动漫,视频,在线观看,CineStream AI,美剧,韩剧,4K,高清,免费视频,影视大全';
+      } 
+      // 2. Channel Pages
+      else if (path === '/dianying') {
+          title = '电影频道-2025最新好看的电影排行榜-高清电影在线观看-CineStream AI';
+          desc = 'CineStream AI电影频道汇集了全球最新最热的大片，涵盖动作、喜剧、科幻、恐怖、爱情等多种类型，提供高清流畅的在线观看体验。';
+          keywords = '电影,电影大全,高清电影,免费电影,在线观看,动作片,喜剧片,科幻片,CineStream AI';
+      } else if (path === '/dianshiju') {
+          title = '电视剧频道-2025最新好看的电视剧大全-高清电视剧在线观看-CineStream AI';
+          desc = 'CineStream AI电视剧频道为您提供最新热播的国产剧、美剧、韩剧、日剧、港台剧等，同步更新，高清免费在线观看。';
+          keywords = '电视剧,电视剧大全,高清电视剧,国产剧,美剧,韩剧,日剧,在线观看,CineStream AI';
+      } else if (path === '/dongman') {
+          title = '动漫频道-2025最新好看的动漫大全-高清动漫在线观看-CineStream AI';
+          desc = 'CineStream AI动漫频道为您提供最新好看的日本动漫、国产动漫、欧美动漫，海量新番连载，高清在线观看。';
+          keywords = '动漫,动漫大全,日本动漫,国产动漫,新番,在线观看,CineStream AI';
+      } else if (path === '/zongyi') {
+          title = '综艺频道-2025最新好看的综艺大全-高清综艺在线观看-CineStream AI';
+          desc = 'CineStream AI综艺频道为您提供最新最热的国内综艺、韩国综艺、欧美综艺等，真人秀、脱口秀应有尽有。';
+          keywords = '综艺,综艺大全,韩国综艺,真人秀,在线观看,CineStream AI';
+      } 
+      // 3. Detail Page (The most important one for Tencent style)
+      else if (path.startsWith('/play/') && currentMovie) {
+          const type = currentMovie.type_name || '影视';
+          const name = currentMovie.vod_name;
+          const actors = currentMovie.vod_actor || '';
+          const director = currentMovie.vod_director || '';
+          const year = currentMovie.vod_year || '';
+          
+          let titleSuffix = '高清在线观看';
+          const isMovie = type.includes('电影') || type.includes('片') || episodes.length <= 1;
+
+          if (!isMovie) {
+              const epIndex = currentEpisodeIndex >= 0 ? currentEpisodeIndex + 1 : 1;
+              const epTitle = episodes[currentEpisodeIndex]?.title;
+              if (epTitle && (epTitle.includes('集') || !isNaN(Number(epTitle)))) {
+                   titleSuffix = `第${epTitle.replace(/[^0-9]/g, '')}集在线观看`;
+              } else {
+                   titleSuffix = '全集在线观看';
+              }
+          }
+
+          title = `《${name}》${titleSuffix} - 剧情介绍 - ${type} - CineStream AI`;
+          
+          const rawContent = currentMovie.vod_content ? currentMovie.vod_content.replace(/<[^>]+>/g, '').slice(0, 150) : '';
+          desc = `《${name}》免费高清在线观看。剧情简介：${rawContent}... 主演：${actors}。导演：${director}。类型：${type}。`;
+          keywords = `${name},${name}在线观看,${name}全集,${name}下载,${actors},${director},${type},${year},CineStream AI`;
+      } 
+      // 4. Search
+      else if (path.startsWith('/sousuo')) {
+           title = searchQuery ? `${searchQuery} - 视频搜索 - CineStream AI` : '搜索中心 - CineStream AI';
+           desc = 'CineStream AI全网搜索，找到你想看的每一部影视作品。';
+           keywords = '搜索,视频搜索,影视搜索,CineStream AI';
+      }
+
+      if (title) {
+          document.title = title;
+          setMeta('description', desc);
+          setMeta('keywords', keywords);
+          // Standard OG Tags
+          setMeta('og:title', title);
+          setMeta('og:description', desc);
+      }
+
+  }, [location.pathname, currentMovie, searchQuery, currentEpisodeIndex, episodes]);
 
   useEffect(() => {
       setWatchHistory(getHistory());
@@ -948,6 +1034,26 @@ const App: React.FC = () => {
                                   刷新重试
                               </button>
                           </div>
+                      </div>
+                      
+                      {/* Manual Search Fallback */}
+                      <div className="mt-8 max-w-lg w-full">
+                          <p className="text-gray-400 mb-4 text-sm">尝试手动搜索该影片：</p>
+                           <div className="flex gap-2">
+                              <input 
+                                  type="text" 
+                                  value={searchQuery}
+                                  onChange={(e) => setSearchQuery(e.target.value)}
+                                  placeholder="输入影片名称..." 
+                                  className="flex-1 bg-[#121620] border border-white/10 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-brand/50"
+                              />
+                              <button 
+                                  onClick={() => triggerSearch(searchQuery)}
+                                  className="bg-brand text-black font-bold px-6 rounded-xl hover:bg-brand-hover transition-colors"
+                              >
+                                  搜索
+                              </button>
+                           </div>
                       </div>
                   </div>
               )}

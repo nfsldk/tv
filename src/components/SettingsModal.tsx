@@ -50,7 +50,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     };
 
     const handleDelete = async (id: string) => {
-        if (confirm('Delete this source?')) {
+        if (confirm('确定要删除这个源吗？')) {
             await deleteVodSource(id);
             setSources(getVodSources());
         }

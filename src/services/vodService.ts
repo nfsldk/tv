@@ -149,10 +149,14 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout 
 const fetchWithProxy = async (targetUrl: string, options: RequestInit = {}): Promise<any> => {
   try {
       const proxyUrl = `${GLOBAL_PROXY}${encodeURIComponent(targetUrl)}`;
-      const response = await fetchWithTimeout(proxyUrl, options, 10000);
+      const response = await fetchWithTimeout(proxyUrl, options, 12000);
       if (response.ok) {
           const text = await response.text();
-          try { return JSON.parse(text); } catch(e) { return text; }
+          try { 
+              // Cleanup text for BOM or weird wrapping
+              const cleanText = text.trim().replace(/^\uFEFF/, '');
+              return JSON.parse(cleanText); 
+          } catch(e) { return text; }
       }
   } catch (e) {}
   return null;
@@ -161,14 +165,35 @@ const fetchWithProxy = async (targetUrl: string, options: RequestInit = {}): Pro
 const fetchCmsData = async (baseUrl: string, params: URLSearchParams): Promise<any> => {
     params.set('out', 'json');
     const url = `${baseUrl}?${params.toString()}`;
+    const cleanJson = (text: string) => {
+        try {
+            // Remove BOM and whitespaces
+            let cleaned = text.trim().replace(/^\uFEFF/, '');
+            // Some CMS wrap JSON in HTML (e.g., <pre>...</pre>)
+            if (cleaned.startsWith('<')) {
+                cleaned = cleaned.replace(/<[^>]+>/g, ''); 
+            }
+            return JSON.parse(cleaned);
+        } catch (e) {
+            return null;
+        }
+    };
+
     try {
-        const res = await fetchWithTimeout(url, {}, 5000); 
+        const res = await fetchWithTimeout(url, {}, 6000); 
         if (res.ok) {
             const text = await res.text();
-            try { return JSON.parse(text); } catch (e) {}
+            const data = cleanJson(text);
+            if (data) return data;
         }
     } catch (e) {}
-    try { return await fetchWithProxy(url); } catch (e) { return null; }
+    
+    // Fallback to proxy
+    try { 
+        const proxyData = await fetchWithProxy(url);
+        if (typeof proxyData === 'string') return cleanJson(proxyData);
+        return proxyData;
+    } catch (e) { return null; }
 };
 
 const fetchDoubanJson = async (type: string, tag: string, limit = 12, sort = 'recommend'): Promise<VodItem[]> => {
@@ -315,25 +340,19 @@ export const fetchPersonDetail = async (id: string | number): Promise<PersonDeta
         const name = doc.querySelector('#content h1')?.textContent?.trim() || 'Unknown';
         const pic = (doc.querySelector('#headline .pic img')?.getAttribute('src') || '').replace(/s_ratio_poster|m(?=\/public)/, 'l');
         
-        // --- IMPROVED INTRO PARSING ---
         let intro = '';
         const introBd = doc.querySelector('#intro .bd');
         if (introBd) {
-            // Priority 1: Check for "all hidden" span (full text)
             const fullSpan = introBd.querySelector('span.all.hidden');
             if (fullSpan) {
                 intro = fullSpan.textContent?.trim() || '';
-            } 
-            // Priority 2: Standard text content (stripping "expand" link if present)
-            else {
-                // Clone to safely remove child elements without affecting DOM logic if needed elsewhere
+            } else {
                 const clone = introBd.cloneNode(true) as HTMLElement;
                 const expandBtn = clone.querySelector('.pl');
                 if (expandBtn) expandBtn.remove();
                 intro = clone.textContent?.trim() || '';
             }
         }
-        // Normalize intro: remove excess whitespace but keep paragraphs
         intro = intro.replace(/\n\s*\n/g, '\n').trim();
 
         const infoLi = doc.querySelectorAll('#headline .info ul li');
@@ -364,7 +383,7 @@ export const fetchPersonDetail = async (id: string | number): Promise<PersonDeta
                     vod_pic: picUrl, 
                     vod_score: rating, 
                     source: 'douban',
-                    type_name: '电影' // Default assumption
+                    type_name: '电影' 
                 } as VodItem);
             }
         });
