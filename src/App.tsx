@@ -736,7 +736,7 @@ const App: React.FC = () => {
           }
           setHasSearched(tab === 'search');
       }
-  }, [location.pathname]); // Keep deps simple
+  }, [location.pathname]);
 
   useEffect(() => {
     const handleClickOutside = () => setContextMenu({ ...contextMenu, visible: false });
