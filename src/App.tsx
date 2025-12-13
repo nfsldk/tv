@@ -524,9 +524,6 @@ const App: React.FC = () => {
           const idParam = pathParts[2];
           const state = location.state as any;
           
-          // Clean up ID (remove prefixes for comparison)
-          // const rawId = idParam.replace(/^db_|^cms_/, '');
-          
           // Check against the EXACT param in URL first to prevent reloading on same URL
           if (currentVodIdRef.current === idParam) {
               return; 
@@ -682,7 +679,13 @@ const App: React.FC = () => {
             const uniqueStrategies = [...new Set(strategies)].filter(s => s && s.length > 1);
 
             // PARALLEL SEARCH for speed
-            const searchPromises = uniqueStrategies.map(term => searchCms(term).then(res => ({ term, list: res.list || [] })));
+            // Use map to catch errors per request so one failure doesn't break Promise.all
+            const searchPromises = uniqueStrategies.map(term => 
+                searchCms(term)
+                    .then(res => ({ term, list: res.list || [] }))
+                    .catch(() => ({ term, list: [] }))
+            );
+            
             const results = await Promise.all(searchPromises);
 
             let candidates: VodItem[] = [];
@@ -719,6 +722,7 @@ const App: React.FC = () => {
             if (requestRef.current !== requestId) return;
 
             if (foundVideo) {
+                // DO NOT set loading to false here, handleSelectMovie will handle it
                 await handleSelectMovie(foundVideo.vod_id, foundVideo.api_url, doubanId);
             } else {
                 setError(`未自动匹配到影片 "${searchName}" 的播放源`);
@@ -1020,7 +1024,8 @@ const App: React.FC = () => {
                   </div>
               )}
 
-              {currentMovie && isPlayPage && (
+              {/* Explicitly check isPlayPage OR currentMovie to prevent flash-disappear */}
+              {(isPlayPage && currentMovie) && (
                   <section className="mb-12 animate-fade-in space-y-6 mt-4 min-h-[500px]">
                       <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-gray-400 hover:text-white mb-4">
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" /></svg>
@@ -1113,7 +1118,8 @@ const App: React.FC = () => {
                   </section>
               )}
 
-              {activeTab === 'home' && !currentMovie && (
+              {/* Ensure Home only renders when NOT on play page */}
+              {activeTab === 'home' && !currentMovie && !isPlayPage && (
                   <>
                       {heroItems.length > 0 && <HeroBanner items={heroItems} onPlay={handleItemClick} />}
                       {watchHistory.length > 0 && <HorizontalSection title="继续观看" items={watchHistory} id="history" onItemClick={handleItemClick} onItemContextMenu={handleContextMenu} />}
@@ -1130,9 +1136,9 @@ const App: React.FC = () => {
                   </>
               )}
 
-              {(['movies', 'series', 'anime', 'variety'].includes(activeTab)) && !currentMovie && <CategoryGrid category={activeTab} onItemClick={handleItemClick} />}
+              {(['movies', 'series', 'anime', 'variety'].includes(activeTab)) && !currentMovie && !isPlayPage && <CategoryGrid category={activeTab} onItemClick={handleItemClick} />}
 
-              {activeTab === 'search' && !currentMovie && (
+              {activeTab === 'search' && !currentMovie && !isPlayPage && (
                   <div className="animate-fade-in max-w-5xl mx-auto">
                       <div className="flex gap-2 md:gap-4 mb-8">
                           <div className="relative flex-1 group">
