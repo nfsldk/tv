@@ -64,8 +64,9 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
   const artRef = useRef<Artplayer | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const propsRef = useRef(props);
+  const isSwitchingRef = useRef(false);
   
-  // Keep props fresh in closure
+  // Keep props fresh
   useEffect(() => { propsRef.current = props; }, [props]);
 
   useImperativeHandle(ref, () => ({ getInstance: () => artRef.current }));
@@ -76,7 +77,7 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
       
       // Cleanup previous instance
       if (artRef.current) {
-          artRef.current.destroy(false); // False = don't remove container
+          artRef.current.destroy(false);
           artRef.current = null;
       }
 
@@ -105,10 +106,10 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
           const art = new Artplayer({
               container: containerRef.current,
               url: propsRef.current.url || '',
-              type: 'm3u8', // Always force m3u8 to trigger customType
+              type: 'm3u8', 
               poster: propsRef.current.poster,
               autoplay: propsRef.current.autoplay,
-              muted: propsRef.current.autoplay, // Mute autoplay to comply with browser policies
+              muted: propsRef.current.autoplay, // Muted autoplay is required by most browsers to avoid blocking
               volume: 0.7,
               isLive: false,
               autoMini: true,
@@ -125,7 +126,7 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
               autoOrientation: true,
               airplay: true,
               moreVideoAttr: { 
-                  crossOrigin: 'anonymous', 
+                  crossOrigin: 'anonymous',
                   playsInline: true, 
                   'webkit-playsinline': true,
                   'x5-video-player-type': 'h5-page' 
@@ -149,12 +150,6 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                           return;
                       }
 
-                      // Destroy old HLS instance
-                      if (art.hls) {
-                          art.hls.destroy();
-                          art.hls = null;
-                      }
-
                       // Check for native HLS support (Safari)
                       if (video.canPlayType('application/vnd.apple.mpegurl')) {
                           video.src = url;
@@ -163,10 +158,11 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
 
                       // Use Hls.js
                       if (Hls.isSupported()) {
+                          if (art.hls) art.hls.destroy();
+                          
                           const hls = new Hls({ 
                               debug: false, 
                               enableWorker: true,
-                              // Increase buffer for stability
                               maxBufferLength: 30,
                               maxMaxBufferLength: 600,
                           });
@@ -184,18 +180,20 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                                        break;
                                    default:
                                        console.error('HLS Fatal Error:', data);
-                                       art.notice.show = '视频加载失败: ' + data.details;
+                                       art.notice.show = '视频加载失败: ' + (data.details || '未知错误');
                                        hls.destroy();
                                        break;
                                    }
                                }
                            });
 
-                          // Try P2P Engine
+                          // Try P2P Engine with robust import handling
                           try {
-                              // Robust P2P Import Check
                               let EngineClass: any = P2PEngine;
-                              if ((P2PEngine as any).default) EngineClass = (P2PEngine as any).default;
+                              // Handle ESM/CommonJS interop issues with CDN imports
+                              if (typeof P2PEngine !== 'function' && (P2PEngine as any).default) {
+                                  EngineClass = (P2PEngine as any).default;
+                              }
                               
                               if (EngineClass && EngineClass.isSupported && EngineClass.isSupported()) {
                                   new EngineClass(hls, {
@@ -208,8 +206,12 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                               console.warn('P2P Engine failed to initialize, using standard HLS.', e);
                           }
                           
-                          hls.loadSource(url);
+                          // Attach media first, then load source (Recommended flow)
                           hls.attachMedia(video);
+                          hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+                              hls.loadSource(url);
+                          });
+                          
                           art.hls = hls;
                           
                           art.on('destroy', () => {
@@ -226,16 +228,22 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
           });
 
           art.on('video:ended', () => { if (propsRef.current.onNext) propsRef.current.onNext(); });
+          
           art.on('ready', () => {
               console.log('Artplayer ready');
-              art.notice.show = '如果是黑屏，请点击播放';
-              (art as any).resize(); // Force resize on ready
+              (art as any).resize();
+              
+              if (propsRef.current.autoplay) {
+                   // Try to play
+                   art.play().catch(e => {
+                       console.warn('Autoplay blocked, trying muted', e);
+                       art.muted = true;
+                       art.play().catch(e2 => console.warn('Muted autoplay blocked', e2));
+                   });
+              }
           });
           
           artRef.current = art;
-
-          // Double force resize for safety
-          setTimeout(() => (art as any).resize(), 500);
 
       } catch (e) {
           console.error("Artplayer init fatal error:", e);
@@ -249,32 +257,36 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
       };
   }, []); 
 
-  // Handle URL switching separately
+  // Handle URL switching
   useEffect(() => {
       const art = artRef.current;
       if (art && url && url !== art.url) {
+          if (isSwitchingRef.current) return;
+          
           console.log('Switching video URL to:', url);
-          // Manually show loading
+          isSwitchingRef.current = true;
           art.loading.show = true;
+          
           (art as any).switchUrl(url, 'm3u8').then(() => {
               art.loading.show = false;
               art.notice.show = '视频已切换';
+              
               if (art.plugins.artplayerPluginDanmuku) {
                   (art.plugins.artplayerPluginDanmuku as any).load();
               }
-              // Attempt play, catching autoplay block
+              
               if (autoplay) {
-                  art.play().catch((e: any) => {
-                      console.warn('Autoplay blocked:', e);
-                      art.notice.show = '点击播放';
-                      art.muted = true; // Try muting to allow play
-                      art.play().catch(() => {});
+                  art.play().catch(() => {
+                      art.muted = true;
+                      art.play();
                   });
               }
           }).catch((err: any) => {
               art.loading.show = false;
               console.error('Switch URL failed:', err);
               art.notice.show = '加载失败: ' + (err.message || '未知错误');
+          }).finally(() => {
+              isSwitchingRef.current = false;
           });
       }
   }, [url, autoplay]);
