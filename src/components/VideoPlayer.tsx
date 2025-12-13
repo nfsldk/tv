@@ -36,24 +36,17 @@ function filterAdsFromM3U8(m3u8Content: string) {
     
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
-        
         // Start of ad block
-        if (line.includes('#EXT-X-CUE-OUT') || line.includes('#EXT-X-SCTE35') || (line.includes('#EXT-X-DATERANGE') && line.includes('SCTE35'))) {
+        if (line.includes('#EXT-X-CUE-OUT') || line.includes('#EXT-X-SCTE35')) {
             inAdBlock = true;
             continue;
         }
-        
         // End of ad block
         if (line.includes('#EXT-X-CUE-IN')) {
             inAdBlock = false;
             continue;
         }
-        
-        // Skip content inside ad block
         if (inAdBlock) continue;
-        
-        // Note: We keep EXT-X-DISCONTINUITY to ensure timestamp synchronization is maintained by the player
-        // unless it was strictly inside the removed ad block (which is handled by `inAdBlock` check above)
         filteredLines.push(lines[i]);
     }
     return filteredLines.join('\n');
@@ -63,26 +56,16 @@ function resolveRelativePaths(content: string, baseUrl: string) {
     const lines = content.split('\n');
     return lines.map(line => {
         const trimmed = line.trim();
-        // Check if line is a URI (not starting with # and not empty)
-        if (trimmed && !trimmed.startsWith('#')) {
-             // Already absolute?
-             if (trimmed.startsWith('http') || trimmed.startsWith('blob:') || trimmed.startsWith('data:')) {
-                 return trimmed;
-             }
-             // Resolve relative
-             try {
-                 return new URL(trimmed, baseUrl).href;
-             } catch(e) { return line; }
+        if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('http') && !trimmed.startsWith('blob:') && !trimmed.startsWith('data:')) {
+             try { return new URL(trimmed, baseUrl).href; } catch(e) { return line; }
         }
         return line;
     }).join('\n');
 }
 
 const robustFetch = async (url: string) => {
-    const headers = { 'Accept': 'application/json' };
-    const proxyUrl = `${GLOBAL_PROXY}${encodeURIComponent(url)}`;
     try {
-        const response = await fetch(proxyUrl, { headers });
+        const response = await fetch(`${GLOBAL_PROXY}${encodeURIComponent(url)}`, { headers: { 'Accept': 'application/json' } });
         if (response.ok) return response;
     } catch (e) {}
     return null;
@@ -90,9 +73,8 @@ const robustFetch = async (url: string) => {
 
 const fetchDanmaku = async (title: string, episodeIndex: number) => {
     if (!title) return [];
-    const episodeNum = episodeIndex + 1;
     try {
-        const searchUrl = `${DANMAKU_API_BASE}/api/v2/search/episodes?anime=${encodeURIComponent(title)}&episode=${episodeNum}`;
+        const searchUrl = `${DANMAKU_API_BASE}/api/v2/search/episodes?anime=${encodeURIComponent(title)}&episode=${episodeIndex + 1}`;
         const res = await robustFetch(searchUrl);
         if (res) {
             const data = await res.json();
@@ -111,59 +93,40 @@ const fetchDanmaku = async (title: string, episodeIndex: number) => {
 };
 
 const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
-  const { url, poster, autoplay = true, onEnded, onNext, title, episodeIndex = 0, vodId, className } = props;
+  const { url, poster, autoplay = true, className } = props;
   const artRef = useRef<Artplayer | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const propsRef = useRef(props);
   const isSwitchingRef = useRef(false);
+  const retryCount = useRef(0);
   
   useEffect(() => { propsRef.current = props; }, [props]);
   useImperativeHandle(ref, () => ({ getInstance: () => artRef.current }));
 
   useEffect(() => {
       if (!containerRef.current) return;
-      
-      // Cleanup previous instance
-      if (artRef.current) {
-          artRef.current.destroy(false);
-          artRef.current = null;
-      }
-
-      console.log('Initializing Artplayer with URL:', url);
+      if (artRef.current) { artRef.current.destroy(false); artRef.current = null; }
 
       try {
-          // Robust Import Resolution
+          // Resolve Classes safely
           const ArtplayerClass = (Artplayer as any).default || Artplayer;
           const HlsClass = (Hls as any).default || Hls;
-          
-          let DanmukuPlugin: any = artplayerPluginDanmuku;
-          if (typeof artplayerPluginDanmuku !== 'function' && (artplayerPluginDanmuku as any).default) {
-              DanmukuPlugin = (artplayerPluginDanmuku as any).default;
-          }
+          const DanmukuPlugin = (artplayerPluginDanmuku as any).default || artplayerPluginDanmuku;
+          const P2PClass = (P2PEngine as any).default || P2PEngine;
 
-          const plugins = [];
-          if (DanmukuPlugin) {
-              plugins.push(DanmukuPlugin({
+          const plugins = [
+              DanmukuPlugin({
                   danmuku: async () => {
-                      try {
-                          return await fetchDanmaku(propsRef.current.title || '', propsRef.current.episodeIndex || 0);
-                      } catch (e) { return []; }
+                      try { return await fetchDanmaku(propsRef.current.title || '', propsRef.current.episodeIndex || 0); } catch (e) { return []; }
                   },
-                  speed: 10,
-                  opacity: 1,
-                  fontSize: 25,
-                  color: '#FFFFFF',
-                  mode: 0,
-                  margin: [10, '75%'],
-                  antiOverlap: true,
-                  synchronousPlayback: true,
-              }));
-          }
+                  speed: 10, opacity: 1, fontSize: 25, color: '#FFFFFF', mode: 0, margin: [10, '75%'], antiOverlap: true, synchronousPlayback: true,
+              })
+          ];
 
           const art = new ArtplayerClass({
               container: containerRef.current,
               url: propsRef.current.url || '',
-              type: 'm3u8', 
+              type: 'm3u8',
               poster: propsRef.current.poster,
               autoplay: propsRef.current.autoplay,
               muted: propsRef.current.autoplay,
@@ -182,12 +145,7 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
               autoPlayback: true,
               autoOrientation: true,
               airplay: true,
-              moreVideoAttr: { 
-                  crossOrigin: 'anonymous',
-                  playsInline: true, 
-                  'webkit-playsinline': true,
-                  'x5-video-player-type': 'h5-page' 
-              } as any,
+              moreVideoAttr: { crossOrigin: 'anonymous', playsInline: true, 'webkit-playsinline': true, 'x5-video-player-type': 'h5-page' } as any,
               plugins: plugins,
               controls: [
                  {
@@ -202,148 +160,106 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
               ],
               customType: {
                   m3u8: async function (video: HTMLVideoElement, url: string, art: any) {
-                      if (!url) {
-                          art.notice.show = '请选择播放源';
-                          return;
-                      }
-
-                      // Native HLS (Safari) - we might want to still try Hls.js for P2P if supported, 
-                      // but usually Safari prefers native.
-                      // Note: P2PEngine (ServiceWorker) might work with native, but swarmcloud-hls is typically Hls.js wrapper.
-                      if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                          // Try to check if we can intercept for P2P via ServiceWorker in future, but for now simple Native
-                          video.src = url;
-                          return;
-                      }
-
-                      if (HlsClass && HlsClass.isSupported()) {
+                      if (HlsClass.isSupported()) {
                           if (art.hls) art.hls.destroy();
                           
                           let playUrl = url;
                           const originalUrl = url;
-                          
-                          // --- M3U8 Fetch & Filter ---
+
+                          // Try to fetch and filter M3U8 for ads
                           try {
                               if (url.startsWith('http')) {
-                                  // Fetch manifest
                                   const response = await fetch(url);
                                   if (response.ok) {
-                                      const rawText = await response.text();
-                                      const filteredText = filterAdsFromM3U8(rawText);
-                                      const resolvedText = resolveRelativePaths(filteredText, url);
-                                      const blob = new Blob([resolvedText], { type: 'application/vnd.apple.mpegurl' });
-                                      playUrl = URL.createObjectURL(blob);
-                                      console.log('M3U8 Loaded (Filtered Ads)');
+                                      const text = await response.text();
+                                      const filtered = filterAdsFromM3U8(text);
+                                      // Only create blob if we actually filtered something to save memory/complexity
+                                      if (filtered.length !== text.length) {
+                                          const resolved = resolveRelativePaths(filtered, url);
+                                          const blob = new Blob([resolved], { type: 'application/vnd.apple.mpegurl' });
+                                          playUrl = URL.createObjectURL(blob);
+                                          console.log('Ads filtered from M3U8');
+                                      }
                                   }
                               }
                           } catch (e) {
-                              console.warn('M3U8 Fetch Failed (CORS or Net), using direct URL.', e);
-                              playUrl = url;
+                              console.warn('Direct play due to fetch fail:', e);
                           }
 
-                          const hls = new HlsClass({ 
-                              debug: false, 
-                              enableWorker: true,
-                              maxBufferLength: 30,
-                              maxMaxBufferLength: 600,
-                          });
+                          const hls = new HlsClass({ debug: false, enableWorker: true });
                           
-                          // --- Error Handling ---
+                          // Error Handling
                           hls.on(HlsClass.Events.ERROR, function (event: any, data: any) {
-                               if (data.fatal) {
-                                   switch (data.type) {
-                                   case HlsClass.ErrorTypes.NETWORK_ERROR:
-                                       console.log('HLS Network error, trying to recover...');
-                                       hls.startLoad();
-                                       break;
-                                   case HlsClass.ErrorTypes.MEDIA_ERROR:
-                                       console.log('HLS Media error, trying to recover...');
-                                       hls.recoverMediaError();
-                                       break;
-                                   default:
-                                       console.error('HLS Fatal Error', data);
-                                       art.notice.show = '播放错误: ' + (data.details || '未知');
-                                       hls.destroy();
-                                       break;
-                                   }
-                               } else {
-                                   // Non-fatal error logging
-                                   // console.warn('HLS Non-fatal error:', data);
-                               }
-                           });
-
-                          // --- P2P Engine Init ---
-                          try {
-                              // Resolve P2P Engine class from potential module formats
-                              let EngineClass: any = P2PEngine;
-                              if (typeof P2PEngine !== 'function' && (P2PEngine as any).default) {
-                                  EngineClass = (P2PEngine as any).default;
-                              } else if ((P2PEngine as any).P2pEngine) {
-                                  EngineClass = (P2PEngine as any).P2pEngine;
+                              if (data.fatal) {
+                                  switch (data.type) {
+                                      case HlsClass.ErrorTypes.NETWORK_ERROR:
+                                          console.log('Network error, recovering...');
+                                          hls.startLoad();
+                                          break;
+                                      case HlsClass.ErrorTypes.MEDIA_ERROR:
+                                          console.log('Media error, recovering...');
+                                          hls.recoverMediaError();
+                                          break;
+                                      default:
+                                          console.error('Fatal error:', data);
+                                          art.notice.show = '播放出错，请切换源';
+                                          hls.destroy();
+                                          break;
+                                  }
                               }
-                              
-                              if (EngineClass && EngineClass.isSupported && EngineClass.isSupported()) {
-                                  new EngineClass(hls, {
+                          });
+
+                          // P2P Setup
+                          if (P2PClass && P2PClass.isSupported && P2PClass.isSupported()) {
+                              try {
+                                  new P2PClass(hls, {
                                       maxBufSize: 1024 * 1024 * 1024,
                                       p2pEnabled: true,
-                                      // CRITICAL: Always use the ORIGINAL URL as the channel ID.
-                                      // If we use the Blob URL (playUrl), peers won't match because every Blob URL is unique per session.
-                                      channelId: function(_segmentUrl: string) { return originalUrl; } 
+                                      // IMPORTANT: Use original URL for P2P matching, not the Blob URL
+                                      channelId: function(_segmentUrl: string) { return originalUrl; }
                                   });
-                                  console.log('P2P Engine Initialized');
-                              }
-                          } catch (e) { console.warn('P2P Init Warning:', e); }
-                          
+                                  console.log('P2P initialized');
+                              } catch(e) { console.warn('P2P init failed', e); }
+                          }
+
                           hls.loadSource(playUrl);
                           hls.attachMedia(video);
                           art.hls = hls;
-                          
+
                           art.on('destroy', () => {
-                              if (art.hls) {
-                                  art.hls.destroy();
-                                  art.hls = null;
-                              }
-                              if (playUrl.startsWith('blob:')) {
-                                  URL.revokeObjectURL(playUrl);
-                              }
+                              if (art.hls) art.hls.destroy();
+                              if (playUrl.startsWith('blob:')) URL.revokeObjectURL(playUrl);
                           });
+                      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                          video.src = url;
                       } else {
-                          art.notice.show = '您的浏览器不支持 HLS';
+                          art.notice.show = '浏览器不支持 HLS';
                       }
                   }
               },
           });
 
           art.on('video:ended', () => { if (propsRef.current.onNext) propsRef.current.onNext(); });
-          
           art.on('ready', () => {
               (art as any).resize();
               if (propsRef.current.autoplay) {
-                   art.play().catch(() => {
-                       art.muted = true;
-                       art.play();
-                   });
+                  art.play().catch(() => { art.muted = true; art.play(); });
               }
           });
           
           artRef.current = art;
-          
-          // Delayed resize to ensure fit
           setTimeout(() => { if(artRef.current) (artRef.current as any).resize(); }, 500);
 
       } catch (e) {
-          console.error("Artplayer Init Exception:", e);
+          console.error("Artplayer Init Failed:", e);
       }
 
       return () => {
-          if (artRef.current) {
-              artRef.current.destroy(false);
-              artRef.current = null;
-          }
+          if (artRef.current) { artRef.current.destroy(false); artRef.current = null; }
       };
   }, []); 
 
-  // Watch for URL changes
+  // URL Switching
   useEffect(() => {
       const art = artRef.current;
       if (art && url && url !== art.url) {
@@ -353,13 +269,12 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
           
           (art as any).switchUrl(url, 'm3u8').then(() => {
               art.loading.show = false;
-              art.notice.show = '视频已切换';
+              art.notice.show = '视频切换成功';
               if (art.plugins.artplayerPluginDanmuku) (art.plugins.artplayerPluginDanmuku as any).load();
               if (autoplay) art.play().catch(() => { art.muted = true; art.play(); });
           }).catch((err: any) => {
               art.loading.show = false;
-              art.notice.show = '加载失败';
-              console.error(err);
+              art.notice.show = '切换失败';
           }).finally(() => {
               isSwitchingRef.current = false;
           });
