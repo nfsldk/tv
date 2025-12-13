@@ -99,18 +99,19 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
           const art = new Artplayer({
               container: containerRef.current,
               url: propsRef.current.url || '',
-              type: 'm3u8', // Explicitly set type to ensure customType is used
+              type: propsRef.current.url ? 'm3u8' : '', // Only set type if url exists to prevent init errors
               poster: propsRef.current.poster,
               autoplay: propsRef.current.autoplay,
               volume: 0.7,
               isLive: false,
               autoMini: false,
               pip: true,
+              setting: true,
               fullscreen: true,
               fullscreenWeb: true,
               theme: '#22c55e',
               lang: 'zh-cn',
-              // Force mobile playback behavior
+              // Force mobile playback behavior and compatibility
               moreVideoAttr: { 
                   crossOrigin: 'anonymous', 
                   playsInline: true, 
@@ -131,6 +132,11 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
               ],
               customType: {
                   m3u8: function (video: HTMLVideoElement, url: string, art: any) {
+                      if (!url) {
+                          console.warn('Artplayer: HLS url is empty');
+                          return;
+                      }
+
                       // Safe HLS cleanup
                       if (art.hls) {
                           art.hls.destroy();
@@ -145,50 +151,60 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
 
                       // Hls.js
                       if (Hls.isSupported()) {
-                          const hls = new Hls({ debug: false, enableWorker: true });
-                          
-                          hls.on(Hls.Events.ERROR, function (event, data) {
-                               if (data.fatal) {
-                                   switch (data.type) {
-                                   case Hls.ErrorTypes.NETWORK_ERROR:
-                                       hls.startLoad();
-                                       break;
-                                   case Hls.ErrorTypes.MEDIA_ERROR:
-                                       hls.recoverMediaError();
-                                       break;
-                                   default:
-                                       hls.destroy();
-                                       // Only show error if playback actually fails completely
-                                       console.error('HLS Fatal Error:', data);
-                                       break;
-                                   }
-                               }
-                           });
-
-                          // P2P Setup with strict safety checks
                           try {
-                              if (P2PEngine && P2PEngine.isSupported && P2PEngine.isSupported()) {
-                                  new (P2PEngine as any)(hls, {
-                                      maxBufSize: 1024 * 1024 * 1024,
-                                      p2pEnabled: true,
-                                  });
+                              const hls = new Hls({ debug: false, enableWorker: true });
+                              
+                              hls.on(Hls.Events.ERROR, function (event, data) {
+                                   if (data.fatal) {
+                                       switch (data.type) {
+                                       case Hls.ErrorTypes.NETWORK_ERROR:
+                                           hls.startLoad();
+                                           break;
+                                       case Hls.ErrorTypes.MEDIA_ERROR:
+                                           hls.recoverMediaError();
+                                           break;
+                                       default:
+                                           hls.destroy();
+                                           console.error('HLS Fatal Error:', data);
+                                           // Fallback: notice user
+                                           art.notice.show = '视频加载失败，请切换源或重试';
+                                           break;
+                                       }
+                                   }
+                               });
+
+                              // P2P Setup with strict safety checks
+                              try {
+                                  // Fix for potential import issues where P2PEngine might be default export or named
+                                  let EngineClass: any = P2PEngine;
+                                  if ((P2PEngine as any).default) EngineClass = (P2PEngine as any).default;
+                                  
+                                  if (EngineClass && EngineClass.isSupported && EngineClass.isSupported()) {
+                                      new EngineClass(hls, {
+                                          maxBufSize: 1024 * 1024 * 1024,
+                                          p2pEnabled: true,
+                                      });
+                                  }
+                              } catch (e) {
+                                  console.warn('P2P Engine init failed, falling back to standard HLS:', e);
                               }
-                          } catch (e) {
-                              console.warn('P2P Engine not available or failed:', e);
+                              
+                              hls.loadSource(url);
+                              hls.attachMedia(video);
+                              art.hls = hls;
+                              
+                              art.on('destroy', () => {
+                                  if (art.hls) {
+                                      art.hls.destroy();
+                                      art.hls = null;
+                                  }
+                              });
+                          } catch (hlsErr) {
+                              console.error('HLS init failed', hlsErr);
+                              art.notice.show = '播放器初始化错误';
                           }
-                          
-                          hls.loadSource(url);
-                          hls.attachMedia(video);
-                          art.hls = hls;
-                          
-                          art.on('destroy', () => {
-                              if (art.hls) {
-                                  art.hls.destroy();
-                                  art.hls = null;
-                              }
-                          });
                       } else {
-                          art.notice.show = 'Unsupported playback format: m3u8';
+                          art.notice.show = '您的浏览器不支持 HLS 播放';
                       }
                   }
               },
@@ -198,7 +214,11 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
           artRef.current = art;
           
           // Force resize after init to ensure controls appear
-          setTimeout(() => (art as any).resize(), 100);
+          setTimeout(() => {
+              if (art && typeof (art as any).resize === 'function') {
+                  (art as any).resize();
+              }
+          }, 200);
 
       } catch (e) {
           console.error("Artplayer init error:", e);
@@ -216,16 +236,17 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
       const art = artRef.current;
       if (art && url && url !== art.url) {
           console.log('Switching video URL to:', url);
+          // Always force m3u8 type when switching to ensure customType is triggered
           (art as any).switchUrl(url, 'm3u8').then(() => {
               if (art.plugins.artplayerPluginDanmuku) {
                   (art.plugins.artplayerPluginDanmuku as any).load();
               }
-              // Auto-play might be blocked by browser, try catching
               if (autoplay) {
-                  art.play().catch(() => console.warn('Autoplay blocked'));
+                  art.play().catch((e: any) => console.warn('Autoplay blocked:', e));
               }
           }).catch((err: any) => {
               console.error('Switch URL failed:', err);
+              art.notice.show = '切换视频失败';
           });
       }
   }, [url, autoplay]);
