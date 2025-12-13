@@ -308,19 +308,56 @@ export const fetchPersonDetail = async (id: string | number): Promise<PersonDeta
         const url = `https://movie.douban.com/celebrity/${id}/`;
         const html = await fetchWithProxy(url);
         if (!html || typeof html !== 'string') return null;
+        
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
+        
         const name = doc.querySelector('#content h1')?.textContent?.trim() || 'Unknown';
         const pic = (doc.querySelector('#headline .pic img')?.getAttribute('src') || '').replace(/s_ratio_poster|m(?=\/public)/, 'l');
-        const intro = doc.querySelector('#intro .bd')?.textContent?.trim() || '';
+        
+        // --- IMPROVED INTRO PARSING ---
+        let intro = '';
+        const introBd = doc.querySelector('#intro .bd');
+        if (introBd) {
+            // Priority 1: Check for "all hidden" span (full text)
+            const fullSpan = introBd.querySelector('span.all.hidden');
+            if (fullSpan) {
+                intro = fullSpan.textContent?.trim() || '';
+            } 
+            // Priority 2: Standard text content (stripping "expand" link if present)
+            else {
+                // Clone to safely remove child elements without affecting DOM logic if needed elsewhere
+                const clone = introBd.cloneNode(true) as HTMLElement;
+                const expandBtn = clone.querySelector('.pl');
+                if (expandBtn) expandBtn.remove();
+                intro = clone.textContent?.trim() || '';
+            }
+        }
+        // Normalize intro: remove excess whitespace but keep paragraphs
+        intro = intro.replace(/\n\s*\n/g, '\n').trim();
+
+        const infoLi = doc.querySelectorAll('#headline .info ul li');
+        let gender, constellation, birthdate, birthplace, role;
+        
+        infoLi.forEach(li => {
+            const text = li.textContent || '';
+            if (text.includes('性别')) gender = text.replace('性别:', '').trim();
+            if (text.includes('星座')) constellation = text.replace('星座:', '').trim();
+            if (text.includes('出生日期')) birthdate = text.replace('出生日期:', '').trim();
+            if (text.includes('出生地')) birthplace = text.replace('出生地:', '').trim();
+            if (text.includes('职业')) role = text.replace('职业:', '').trim();
+        });
+        
         let works: VodItem[] = [];
         doc.querySelectorAll('#best_works .bd ul li, #recent_movies .bd ul li').forEach(li => {
             const title = li.querySelector('.pic a')?.getAttribute('title') || '';
             const subjectId = li.querySelector('.pic a')?.getAttribute('href')?.match(/subject\/(\d+)/)?.[1];
             const picUrl = (li.querySelector('.pic img')?.getAttribute('src') || '').replace(/s_ratio_poster|m(?=\/public)/, 'l');
-            if (subjectId) works.push({ vod_id: subjectId, vod_name: title, vod_pic: picUrl, source: 'douban' } as VodItem);
+            const rating = li.querySelector('.rating')?.textContent?.trim() || '';
+            if (subjectId) works.push({ vod_id: subjectId, vod_name: title, vod_pic: picUrl, vod_score: rating, source: 'douban' } as VodItem);
         });
-        return { id: String(id), name, pic, intro, works };
+        
+        return { id: String(id), name, pic, gender, constellation, birthdate, birthplace, role, intro, works };
     } catch (e) { return null; }
 };
 
