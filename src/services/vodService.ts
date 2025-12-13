@@ -317,14 +317,44 @@ const searchAllCmsResources = async (keyword: string): Promise<VodItem[]> => {
 
 export const getAggregatedSearch = async (keyword: string): Promise<VodItem[]> => {
     const [doubanResults, cmsResults] = await Promise.all([searchDouban(keyword), searchAllCmsResources(keyword)]);
-    const finalResults = [...doubanResults];
-    const existingNames = new Set(doubanResults.map(i => i.vod_name));
-    cmsResults.forEach((item: VodItem) => {
-        if (!existingNames.has(item.vod_name.trim())) {
-             finalResults.push(item);
-             existingNames.add(item.vod_name.trim());
+    
+    // Map for quick lookup of CMS results by name
+    const cmsMap = new Map<string, VodItem>();
+    cmsResults.forEach(item => {
+        cmsMap.set(item.vod_name.trim(), item);
+    });
+
+    const finalResults: VodItem[] = [];
+    const usedNames = new Set<string>();
+
+    // Process Douban results first to prioritize their metadata (pics, score, etc.)
+    for (const dItem of doubanResults) {
+        const name = dItem.vod_name.trim();
+        const cmsMatch = cmsMap.get(name);
+        
+        if (cmsMatch) {
+            // Merge: Keep Douban metadata but use CMS ID and API for playback
+            finalResults.push({
+                ...dItem,
+                vod_id: cmsMatch.vod_id, // Use CMS ID
+                api_url: cmsMatch.api_url, // Use CMS API
+                vod_douban_id: String(dItem.vod_id), // Preserve Douban ID for enrichment later
+                source: 'douban', // Keep source as douban to indicate high quality metadata
+            });
+        } else {
+            finalResults.push(dItem);
+        }
+        usedNames.add(name);
+    }
+
+    // Add remaining CMS results that weren't in Douban
+    cmsResults.forEach(cItem => {
+        if (!usedNames.has(cItem.vod_name.trim())) {
+            finalResults.push(cItem);
+            usedNames.add(cItem.vod_name.trim());
         }
     });
+
     return finalResults;
 };
 
