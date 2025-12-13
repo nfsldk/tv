@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getHomeSections, searchCms, getAggregatedSearch, getAggregatedMovieDetail, parseAllSources, enrichVodDetail, fetchDoubanData, fetchCategoryItems, getHistory, addToHistory, removeFromHistory, fetchPersonDetail, initVodSources, getMovieDetail, getAlternativeVodDetails } from './services/vodService';
+import { getHomeSections, searchCms, getAggregatedSearch, getAggregatedMovieDetail, parseAllSources, enrichVodDetail, fetchDoubanData, fetchCategoryItems, getHistory, addToHistory, removeFromHistory, fetchPersonDetail, initVodSources } from './services/vodService';
 import MovieInfoCard from './components/MovieInfoCard';
 import ImageWithFallback from './components/ImageWithFallback';
 import { VodItem, VodDetail, Episode, PlaySource, HistoryItem, PersonDetail } from './types';
@@ -376,89 +375,6 @@ const PersonProfileCard = ({ person }: { person: PersonDetail }) => {
     );
 };
 
-const NavBar = ({ activeTab, onTabChange, onSettingsClick }: { activeTab: string, onTabChange: (tab: string) => void, onSettingsClick: () => void }) => {
-    const navItems = [
-        { id: 'home', label: '首页', icon: NavIcons.Home },
-        { id: 'movies', label: '电影', icon: NavIcons.Movie },
-        { id: 'series', label: '剧集', icon: NavIcons.Series },
-        { id: 'anime', label: '动漫', icon: NavIcons.Anime },
-        { id: 'variety', label: '综艺', icon: NavIcons.Variety },
-        { id: 'search', label: '搜索', icon: NavIcons.Search },
-    ];
-
-    return (
-        <nav className="fixed top-0 left-0 right-0 z-50 bg-black/90 backdrop-blur-xl border-b border-white/5 transition-all duration-300">
-            <div className="container mx-auto max-w-[1400px]">
-                <div className="hidden lg:flex items-center justify-between h-16 px-4 relative">
-                    <div className="flex items-center gap-2 cursor-pointer z-20" onClick={() => onTabChange('home')}>
-                        <span className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-brand to-cyan-400">
-                            CineStream
-                        </span>
-                    </div>
-                    <div className="flex items-center gap-1 absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                        {navItems.map(item => (
-                            <button
-                                key={item.id}
-                                onClick={() => onTabChange(item.id)}
-                                className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
-                                    activeTab === item.id 
-                                    ? 'bg-white/10 text-brand shadow-[0_0_10px_rgba(34,197,94,0.2)]' 
-                                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                                }`}
-                            >
-                                {item.icon}
-                                {item.label}
-                            </button>
-                        ))}
-                    </div>
-                    <div className="w-24 flex justify-end">
-                         <button 
-                            onClick={onSettingsClick}
-                            className="text-gray-400 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors"
-                            title="资源管理"
-                         >
-                             {NavIcons.Settings}
-                         </button>
-                    </div> 
-                </div>
-                <div className="lg:hidden flex flex-col pb-0">
-                    <div className="flex items-center justify-between h-14 px-4">
-                         <div className="flex items-center gap-2 cursor-pointer" onClick={() => onTabChange('home')}>
-                            <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-brand to-cyan-400">
-                                CineStream
-                            </span>
-                        </div>
-                        <button 
-                            onClick={onSettingsClick}
-                            className="text-gray-400 hover:text-white p-2 rounded-full active:bg-white/10"
-                        >
-                             {NavIcons.Settings}
-                        </button>
-                    </div>
-                    <div className="px-4 w-full overflow-x-auto visible-scrollbar mask-linear-fade pb-2">
-                         <div className="flex items-center gap-3 min-w-max pb-1">
-                             {navItems.map(item => (
-                                <button
-                                    key={item.id}
-                                    onClick={() => onTabChange(item.id)}
-                                    className={`flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap border ${
-                                        activeTab === item.id 
-                                        ? 'bg-brand text-black border-brand shadow-[0_0_8px_rgba(34,197,94,0.4)]' 
-                                        : 'bg-white/5 text-gray-300 border-white/5'
-                                    }`}
-                                >
-                                    {React.cloneElement(item.icon, { className: 'w-4 h-4' })}
-                                    <span>{item.label}</span>
-                                </button>
-                            ))}
-                         </div>
-                    </div>
-                </div>
-            </div>
-        </nav>
-    );
-};
-
 const App: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -539,22 +455,44 @@ const App: React.FC = () => {
       };
 
       if (path === '/') {
-          updateSEO('CineStream AI-海量高清电影电视剧动漫综艺在线观看_中国领先的影视聚合平台', 'CineStream AI为您提供最新最热的电影、电视剧、综艺、动漫高清在线观看。包含国产剧、美剧、韩剧、日剧等海量资源，支持智能P2P加速与AI助手互动，致力于为您提供极致的视听体验。', '电影,电视剧,综艺,动漫,视频,在线观看,CineStream AI,美剧,韩剧,4K,高清,免费视频');
+          updateSEO(
+              'CineStream AI-海量高清电影电视剧动漫综艺在线观看_中国领先的影视聚合平台',
+              'CineStream AI为您提供最新最热的电影、电视剧、综艺、动漫高清在线观看。包含国产剧、美剧、韩剧、日剧等海量资源，支持智能P2P加速与AI助手互动，致力于为您提供极致的视听体验。',
+              '电影,电视剧,综艺,动漫,视频,在线观看,CineStream AI,美剧,韩剧,4K,高清,免费视频'
+          );
       } else if (path === '/dianying') {
-          updateSEO('电影频道-2025最新好看的电影大全-高清电影在线观看-CineStream AI', 'CineStream AI电影频道汇集了全球最新最热的大片，涵盖动作、喜剧、科幻、恐怖、爱情等多种类型，提供高清流畅的在线观看体验。', '电影,电影大全,高清电影,免费电影,在线观看,动作片,喜剧片,科幻片,CineStream AI');
+          updateSEO(
+              '电影频道-2025最新好看的电影大全-高清电影在线观看-CineStream AI',
+              'CineStream AI电影频道汇集了全球最新最热的大片，涵盖动作、喜剧、科幻、恐怖、爱情等多种类型，提供高清流畅的在线观看体验。',
+              '电影,电影大全,高清电影,免费电影,在线观看,动作片,喜剧片,科幻片,CineStream AI'
+          );
       } else if (path === '/dianshiju') {
-          updateSEO('电视剧频道-2025最新好看的电视剧大全-高清电视剧在线观看-CineStream AI', 'CineStream AI电视剧频道为您提供最新热播的国产剧、美剧、韩剧、日剧、港台剧等，同步更新，高清免费在线观看。', '电视剧,电视剧大全,高清电视剧,国产剧,美剧,韩剧,日剧,在线观看,CineStream AI');
+          updateSEO(
+              '电视剧频道-2025最新好看的电视剧大全-高清电视剧在线观看-CineStream AI',
+              'CineStream AI电视剧频道为您提供最新热播的国产剧、美剧、韩剧、日剧、港台剧等，同步更新，高清免费在线观看。',
+              '电视剧,电视剧大全,高清电视剧,国产剧,美剧,韩剧,日剧,在线观看,CineStream AI'
+          );
       } else if (path === '/dongman') {
-          updateSEO('动漫频道-2025最新好看的动漫大全-高清动漫在线观看-CineStream AI', 'CineStream AI动漫频道为您提供最新好看的日本动漫、国产动漫、欧美动漫，海量新番连载，高清在线观看。', '动漫,动漫大全,日本动漫,国产动漫,新番,在线观看,CineStream AI');
+          updateSEO(
+              '动漫频道-2025最新好看的动漫大全-高清动漫在线观看-CineStream AI',
+              'CineStream AI动漫频道为您提供最新好看的日本动漫、国产动漫、欧美动漫，海量新番连载，高清在线观看。',
+              '动漫,动漫大全,日本动漫,国产动漫,新番,在线观看,CineStream AI'
+          );
       } else if (path === '/zongyi') {
-          updateSEO('综艺频道-2025最新好看的综艺大全-高清综艺在线观看-CineStream AI', 'CineStream AI综艺频道为您提供最新最热的国内综艺、韩国综艺、欧美综艺等，真人秀、脱口秀应有尽有。', '综艺,综艺大全,韩国综艺,真人秀,在线观看,CineStream AI');
+          updateSEO(
+              '综艺频道-2025最新好看的综艺大全-高清综艺在线观看-CineStream AI',
+              'CineStream AI综艺频道为您提供最新最热的国内综艺、韩国综艺、欧美综艺等，真人秀、脱口秀应有尽有。',
+              '综艺,综艺大全,韩国综艺,真人秀,在线观看,CineStream AI'
+          );
       } else if (path.startsWith('/play/') && currentMovie) {
           const rawContent = currentMovie.vod_content ? currentMovie.vod_content.replace(/<[^>]+>/g, '').slice(0, 150) : '暂无简介';
           const actors = currentMovie.vod_actor || '';
           const director = currentMovie.vod_director || '';
           const type = currentMovie.type_name || '影视';
+          
           let titleSuffix = '';
           const isMovie = type === '电影' || episodes.length <= 1;
+
           if (isMovie) {
               const epTitle = episodes[currentEpisodeIndex]?.title || 'HD';
               const cleanEpTitle = epTitle.replace(/第|集/g, '').replace(/^0+/, ''); 
@@ -567,10 +505,20 @@ const App: React.FC = () => {
                   titleSuffix = ` ${display}`;
               }
           }
-          updateSEO(`《${currentMovie.vod_name}》${titleSuffix}在线观看_全集高清播放_${type}_CineStream AI`, `CineStream AI为您提供《${currentMovie.vod_name}》免费高清在线观看，${currentMovie.vod_name}剧情介绍：${rawContent}...`, `${currentMovie.vod_name},${currentMovie.vod_name}在线观看,${currentMovie.vod_name}全集,${actors},${director},${type},CineStream AI`, currentMovie.vod_pic);
+
+          updateSEO(
+              `《${currentMovie.vod_name}》${titleSuffix}在线观看_全集高清播放_${type}_CineStream AI`,
+              `CineStream AI为您提供《${currentMovie.vod_name}》免费高清在线观看，${currentMovie.vod_name}剧情介绍：${rawContent}...`,
+              `${currentMovie.vod_name},${currentMovie.vod_name}在线观看,${currentMovie.vod_name}全集,${actors},${director},${type},CineStream AI`,
+              currentMovie.vod_pic
+          );
       } else if (path.startsWith('/sousuo')) {
            const title = searchQuery ? `${searchQuery}-搜索结果-CineStream AI` : '搜索中心-CineStream AI';
-           updateSEO(title, 'CineStream AI全网搜索，找到你想看的每一部影视作品。', '搜索,视频搜索,影视搜索,CineStream AI');
+           updateSEO(
+              title,
+              'CineStream AI全网搜索，找到你想看的每一部影视作品。',
+              '搜索,视频搜索,影视搜索,CineStream AI'
+           );
       }
   }, [location.pathname, currentMovie, searchQuery, currentEpisodeIndex, episodes]);
 
@@ -622,126 +570,12 @@ const App: React.FC = () => {
       fetchInitial();
   }, [fetchInitial]);
 
-  // Resolve Douban ID to CMS Content with Enhanced Matching
-  const handleResolveDoubanMovie = async (doubanId: string, name?: string, year?: string) => {
-        setLoading(true);
-        setCurrentMovie(null); 
-        
-        try {
-            let searchName = name;
-            if (!searchName) {
-                 const data = await fetchDoubanData('', doubanId);
-                 if (data) searchName = data.title || ''; 
-            }
-
-            if (!searchName) {
-                 const hist = getHistory().find(h => String(h.vod_id) === doubanId);
-                 if(hist) searchName = hist.vod_name;
-            }
-
-            if (!searchName) {
-                 alert('无法获取影片信息');
-                 setLoading(false);
-                 return;
-            }
-
-            // Enhanced: Remove "Season N" type info for broad search, but keep it for logic
-            const cleanName = searchName
-                .replace(/[（\(]\d{4}[）\)]/g, '')
-                .replace(/第.+?季|Season\s*\d+|S\d+/gi, '')
-                .replace(/集/g, '')
-                .trim();
-            
-            const queries = [searchName, cleanName];
-            let foundVideo: VodItem | null = null;
-
-            // Aggressive Normalization: Remove ALL spaces, punctuation, special chars, and lowercase.
-            const normalize = (str: string) => str.replace(/[\s\.\-_:：，,]+/g, '').toLowerCase();
-            const targetFingerprint = normalize(searchName);
-            const cleanFingerprint = normalize(cleanName);
-
-            for (const q of queries) {
-                if(!q) continue;
-                const res = await searchCms(q);
-                if (res.list && res.list.length > 0) {
-                    const candidates = res.list as VodItem[];
-                    
-                    // 1. Exact Fingerprint Match (High Priority)
-                    let match = candidates.find(v => normalize(v.vod_name) === targetFingerprint);
-                    
-                    // 2. Exact Fingerprint Match against Clean Name
-                    if (!match) {
-                        match = candidates.find(v => normalize(v.vod_name) === cleanFingerprint);
-                    }
-
-                    // 3. Year Match + Fuzzy Fingerprint (High Priority)
-                    if (!match && year) {
-                        match = candidates.find(v => {
-                            const vFinger = normalize(v.vod_name);
-                            return (vFinger.includes(cleanFingerprint) || cleanFingerprint.includes(vFinger)) && v.vod_year === year;
-                        });
-                    }
-                    
-                    // 4. Fuzzy Match (Contains clean fingerprint)
-                    if (!match) {
-                         const validMatches = candidates.filter(v => normalize(v.vod_name).includes(cleanFingerprint));
-                         if (validMatches.length > 0) {
-                             validMatches.sort((a, b) => a.vod_name.length - b.vod_name.length);
-                             match = validMatches[0];
-                         }
-                    }
-
-                    if (match) {
-                        foundVideo = match;
-                        break;
-                    }
-                }
-            }
-
-            if (foundVideo) {
-                await handleSelectMovie(foundVideo.vod_id, foundVideo.api_url);
-                setCurrentMovie(prev => {
-                    if(!prev) return null;
-                    return {
-                        ...prev,
-                        vod_douban_id: doubanId,
-                    }
-                });
-            } else {
-                alert('自动匹配失败，请在搜索结果中选择 (Auto-match failed, please select from results)');
-                triggerSearch(searchName);
-            }
-
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setLoading(false);
-        }
-  }
-
-  // --- CONSOLIDATED ROUTING LOGIC ---
   useEffect(() => {
-      const pathParts = location.pathname.split('/');
-      const path = pathParts[1] || '';
-      
+      const path = location.pathname.split('/')[1] || '';
       if (path === 'play') {
-          const idParam = pathParts[2];
-          if (idParam) {
-              if (idParam.startsWith('db_')) {
-                  const doubanId = idParam.replace('db_', '');
-                  if (!currentMovie || String(currentMovie.vod_douban_id) !== doubanId) {
-                      const state = location.state as any;
-                      const name = state?.name;
-                      const year = state?.year;
-                      handleResolveDoubanMovie(doubanId, name, year);
-                  }
-              } else {
-                  const rawId = idParam.replace(/^cms_/, '');
-                  const currentRawId = String(currentMovie?.vod_id || '').replace(/^cms_/, '');
-                  if (!currentMovie || currentRawId !== rawId) {
-                      handleSelectMovie(idParam);
-                  }
-              }
+          const id = location.pathname.split('/')[2];
+          if (id && (!currentMovie || String(currentMovie.vod_id) !== id)) {
+              handleSelectMovie(id);
           }
       } else {
           const tab = URL_TO_TAB[path] || 'home';
@@ -839,6 +673,7 @@ const App: React.FC = () => {
                 } else {
                     setSearchResults([]);
                 }
+                // Scroll to top of results container if available
                 if (resultsRef.current) {
                     resultsRef.current.scrollIntoView({ behavior: 'smooth' });
                 }
@@ -857,7 +692,40 @@ const App: React.FC = () => {
           return;
       }
 
-      navigate(`/play/db_${item.vod_id}`, { state: { name: item.vod_name, pic: item.vod_pic, year: item.vod_year } });
+      setLoading(true);
+      try {
+          await fetchDoubanData(item.vod_name, item.vod_id);
+          const cleanName = item.vod_name
+              .replace(/[（\(]\d{4}[）\)]/g, '')
+              .replace(/第.+?季|Season\s*\d+|S\d+/gi, '')
+              .replace(/集/g, '')
+              .trim();
+
+          const queries = [item.vod_name, cleanName];
+          let foundVideo: VodItem | null = null;
+          
+          for (const q of queries) {
+              if(!q) continue;
+              const res = await searchCms(q); 
+              if (res.list && res.list.length > 0) {
+                  const exact = res.list.find((v: any) => v.vod_name === item.vod_name);
+                  foundVideo = (exact || res.list[0]) as VodItem;
+                  break; 
+              }
+          }
+
+          if (foundVideo) {
+              handleSelectMovie(foundVideo.vod_id, foundVideo.api_url);
+              navigate(`/play/${foundVideo.vod_id}`);
+          } else {
+             triggerSearch(cleanName || item.vod_name);
+          }
+      } catch (e) {
+          console.error("Failed to find video source", e);
+          triggerSearch(item.vod_name);
+      } finally {
+          setLoading(false);
+      }
   };
 
   const handleSelectMovie = async (id: number | string, apiUrl?: string) => {
@@ -866,11 +734,12 @@ const App: React.FC = () => {
       setSidePanelTab('episodes');
       
       try {
-          const realId = String(id).replace('cms_', '');
-          const main = await getMovieDetail(realId, apiUrl);
+          const result = await getAggregatedMovieDetail(id, apiUrl);
           
-          if (main) {
-              const allSources = parseAllSources(main);
+          if (result && result.main) {
+              const { main, alternatives } = result;
+              
+              const allSources = parseAllSources([main, ...alternatives]);
               
               if (allSources.length > 0) {
                   const m3u8Index = allSources.findIndex(s => s.name.toLowerCase().includes('m3u8'));
@@ -879,8 +748,7 @@ const App: React.FC = () => {
                   setAvailableSources(allSources);
                   setCurrentSourceIndex(initialIndex);
                   setEpisodes(allSources[initialIndex].episodes);
-                  setCurrentMovie(main); 
-                  setLoading(false);     
+                  setCurrentMovie(main);
                   
                   const savedIndex = parseInt(localStorage.getItem(`cine_last_episode_${main.vod_id}`) || '0');
                   if (!isNaN(savedIndex) && savedIndex >= 0 && savedIndex < allSources[initialIndex].episodes.length) {
@@ -901,24 +769,10 @@ const App: React.FC = () => {
                           });
                       }
                   });
-
-                  getAlternativeVodDetails(main).then(alternatives => {
-                      if (alternatives.length > 0) {
-                          const altSources = parseAllSources(alternatives);
-                          if (altSources.length > 0) {
-                              setAvailableSources(prev => {
-                                  const existingNames = new Set(prev.map(s => s.name));
-                                  const newUnique = altSources.filter(s => !existingNames.has(s.name));
-                                  return [...prev, ...newUnique];
-                              });
-                          }
-                      }
-                  });
-
-                  return;
+              } else {
+                 alert('未找到可播放的M3U8资源 (No playable M3U8 sources found)');
               }
           }
-          alert('未找到可播放的M3U8资源 (No playable M3U8 sources found)');
       } catch (error) {
           console.error(error);
       } finally {
@@ -976,6 +830,89 @@ const App: React.FC = () => {
       return !loading && activeTab === 'home' && (!homeSections.movies || homeSections.movies.length === 0);
   }, [loading, activeTab, homeSections]);
 
+  const NavBar = ({ activeTab, onTabChange, onSettingsClick }: { activeTab: string, onTabChange: (tab: string) => void, onSettingsClick: () => void }) => {
+    const navItems = [
+        { id: 'home', label: '首页', icon: NavIcons.Home },
+        { id: 'movies', label: '电影', icon: NavIcons.Movie },
+        { id: 'series', label: '剧集', icon: NavIcons.Series },
+        { id: 'anime', label: '动漫', icon: NavIcons.Anime },
+        { id: 'variety', label: '综艺', icon: NavIcons.Variety },
+        { id: 'search', label: '搜索', icon: NavIcons.Search },
+    ];
+
+    return (
+        <nav className="fixed top-0 left-0 right-0 z-50 bg-black/90 backdrop-blur-xl border-b border-white/5 transition-all duration-300">
+            <div className="container mx-auto max-w-[1400px]">
+                <div className="hidden lg:flex items-center justify-between h-16 px-4 relative">
+                    <div className="flex items-center gap-2 cursor-pointer z-20" onClick={() => onTabChange('home')}>
+                        <span className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-brand to-cyan-400">
+                            CineStream
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-1 absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2">
+                        {navItems.map(item => (
+                            <button
+                                key={item.id}
+                                onClick={() => onTabChange(item.id)}
+                                className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
+                                    activeTab === item.id 
+                                    ? 'bg-white/10 text-brand shadow-[0_0_10px_rgba(34,197,94,0.2)]' 
+                                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                                }`}
+                            >
+                                {item.icon}
+                                {item.label}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="w-24 flex justify-end">
+                         <button 
+                            onClick={onSettingsClick}
+                            className="text-gray-400 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors"
+                            title="资源管理"
+                         >
+                             {NavIcons.Settings}
+                         </button>
+                    </div> 
+                </div>
+                <div className="lg:hidden flex flex-col pb-0">
+                    <div className="flex items-center justify-between h-14 px-4">
+                         <div className="flex items-center gap-2 cursor-pointer" onClick={() => onTabChange('home')}>
+                            <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-brand to-cyan-400">
+                                CineStream
+                            </span>
+                        </div>
+                        <button 
+                            onClick={onSettingsClick}
+                            className="text-gray-400 hover:text-white p-2 rounded-full active:bg-white/10"
+                        >
+                             {NavIcons.Settings}
+                        </button>
+                    </div>
+                    <div className="px-4 w-full overflow-x-auto visible-scrollbar mask-linear-fade pb-2">
+                         <div className="flex items-center gap-3 min-w-max pb-1">
+                             {navItems.map(item => (
+                                <button
+                                    key={item.id}
+                                    onClick={() => onTabChange(item.id)}
+                                    className={`flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap border ${
+                                        activeTab === item.id 
+                                        ? 'bg-brand text-black border-brand shadow-[0_0_8px_rgba(34,197,94,0.4)]' 
+                                        : 'bg-white/5 text-gray-300 border-white/5'
+                                    }`}
+                                >
+                                    {React.cloneElement(item.icon, { className: 'w-4 h-4' })}
+                                    <span>{item.label}</span>
+                                </button>
+                            ))}
+                         </div>
+                    </div>
+                </div>
+            </div>
+        </nav>
+    );
+  };
+
   return (
       <div className="relative min-h-screen pb-20 overflow-x-hidden font-sans pt-24 lg:pt-16">
           <NavBar activeTab={activeTab} onTabChange={handleTabChange} onSettingsClick={() => setShowSettings(true)} />
@@ -984,6 +921,7 @@ const App: React.FC = () => {
                <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
           </Suspense>
 
+          {/* Context Menu */}
           {contextMenu.visible && (
               <div 
                   style={{ top: contextMenu.y, left: contextMenu.x }}
@@ -1258,30 +1196,22 @@ const App: React.FC = () => {
                                           {searchResults.map((item) => (
                                               <div key={item.vod_id} onClick={() => handleItemClick(item)} className="group cursor-pointer bg-gray-900 rounded-xl overflow-hidden aspect-[2/3] relative border border-white/5 hover:border-brand/50 transition-all duration-300 hover:-translate-y-1 shadow-lg hover:shadow-brand/10">
                                                   <ImageWithFallback src={item.vod_pic || ''} alt={item.vod_name} searchKeyword={item.vod_name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
-                                                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/90 to-transparent p-3 pt-16">
+                                                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12">
                                                       <h4 className="text-sm font-bold text-white truncate group-hover:text-brand transition-colors">{item.vod_name}</h4>
-                                                      <div className="flex justify-between items-center mt-1 text-xs text-gray-400 mb-2">
+                                                      <div className="flex justify-between items-center mt-1 text-xs text-gray-400">
                                                           <span>{item.vod_year || 'N/A'}</span>
                                                           <span className="bg-white/10 px-1.5 py-0.5 rounded text-[10px]">{item.type_name || '影视'}</span>
                                                       </div>
-                                                      
-                                                      {/* Visible View Details Button for Celebrities */}
-                                                      {item.type_name === 'celebrity' && (
-                                                          <button 
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleItemClick(item);
-                                                            }}
-                                                            className="w-full bg-brand text-black text-xs font-bold py-1.5 rounded flex items-center justify-center gap-1 hover:bg-brand-hover transition-colors"
-                                                          >
-                                                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
-                                                                  <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
-                                                                  <path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
-                                                              </svg>
-                                                              查看详细资料
-                                                          </button>
-                                                      )}
                                                   </div>
+                                                  
+                                                  {/* Special Overlay for Celebrity Items */}
+                                                  {item.type_name === 'celebrity' && (
+                                                      <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                                                          <button className="bg-brand text-black font-bold px-4 py-2 rounded-full transform scale-90 group-hover:scale-100 transition-transform">
+                                                              查看资料
+                                                          </button>
+                                                      </div>
+                                                  )}
                                               </div>
                                           ))}
                                       </div>
@@ -1307,4 +1237,4 @@ const App: React.FC = () => {
   );
 };
 
-export default App; 
+export default App;

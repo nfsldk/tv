@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { VodDetail } from '../types';
 import ImageWithFallback from './ImageWithFallback';
@@ -69,7 +70,7 @@ const MovieInfoCard: React.FC<MovieInfoCardProps> = ({ movie, onSearch }) => {
                           {movie.type_name && <span className="bg-emerald-600/20 border border-emerald-500/30 text-emerald-300 text-[10px] md:text-xs font-medium px-2.5 py-1 rounded-full">{movie.type_name}</span>}
                           {movie.vod_year && <span className="bg-orange-600/20 border border-orange-500/30 text-orange-300 text-[10px] md:text-xs font-medium px-2.5 py-1 rounded-full">{movie.vod_year}</span>}
                           {score !== 'N/A' && (
-                               <span className="bg-[#ffb400]/20 border border-[#ffb400]/30 text-[#ffb400] text-[10px] md:text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
+                               <span className="bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 text-[10px] md:text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
                                    ★ {score}
                                </span>
                           )}
