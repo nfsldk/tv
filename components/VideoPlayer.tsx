@@ -418,7 +418,7 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                   },
                   speed: 10,
                   opacity: 1, 
-                  fontSize: 21,
+                  fontSize: 25,
                   color: '#FFFFFF',
                   mode: 0,
                   margin: [10, '75%'],
