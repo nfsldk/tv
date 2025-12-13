@@ -318,42 +318,57 @@ const searchAllCmsResources = async (keyword: string): Promise<VodItem[]> => {
 export const getAggregatedSearch = async (keyword: string): Promise<VodItem[]> => {
     const [doubanResults, cmsResults] = await Promise.all([searchDouban(keyword), searchAllCmsResources(keyword)]);
     
-    // Map for quick lookup of CMS results by name
+    // Normalize string: remove spaces, punctuation, special chars, and lowercase
+    const normalize = (str: string) => str.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').toLowerCase();
+
+    // CMS Deduplication Map (Normalized Name -> Item)
     const cmsMap = new Map<string, VodItem>();
-    cmsResults.forEach(item => {
-        cmsMap.set(item.vod_name.trim(), item);
-    });
-
-    const finalResults: VodItem[] = [];
-    const usedNames = new Set<string>();
-
-    // Process Douban results first to prioritize their metadata (pics, score, etc.)
-    for (const dItem of doubanResults) {
-        const name = dItem.vod_name.trim();
-        const cmsMatch = cmsMap.get(name);
-        
-        if (cmsMatch) {
-            // Merge: Keep Douban metadata but use CMS ID and API for playback
-            finalResults.push({
-                ...dItem,
-                vod_id: cmsMatch.vod_id, // Use CMS ID
-                api_url: cmsMatch.api_url, // Use CMS API
-                vod_douban_id: String(dItem.vod_id), // Preserve Douban ID for enrichment later
-                source: 'douban', // Keep source as douban to indicate high quality metadata
-            });
-        } else {
-            finalResults.push(dItem);
+    for (const item of cmsResults) {
+        if (!item.vod_name) continue;
+        const key = normalize(item.vod_name);
+        // If multiple CMS have the same movie, we prefer the one we saw first, or maybe logic to pick best?
+        // For now, keep the first one found (or last one? Map.set overwrites)
+        // Let's keep the one that might have vod_remarks (quality)
+        if (!cmsMap.has(key) || (!cmsMap.get(key)?.vod_remarks && item.vod_remarks)) {
+            cmsMap.set(key, item);
         }
-        usedNames.add(name);
     }
 
-    // Add remaining CMS results that weren't in Douban
-    cmsResults.forEach(cItem => {
-        if (!usedNames.has(cItem.vod_name.trim())) {
-            finalResults.push(cItem);
-            usedNames.add(cItem.vod_name.trim());
+    const finalResults: VodItem[] = [];
+    const usedKeys = new Set<string>();
+
+    // 1. Process Douban Results (Priority)
+    for (const dItem of doubanResults) {
+        if (!dItem.vod_name) continue;
+        const key = normalize(dItem.vod_name);
+        
+        if (cmsMap.has(key)) {
+            const cmsItem = cmsMap.get(key)!;
+            // Merge: Keep Douban metadata (High quality pics/score) but use CMS ID and API for playback
+            finalResults.push({
+                ...dItem, // Name, Pic, Score, Year from Douban
+                vod_id: cmsItem.vod_id, // IMPORTANT: Use CMS ID for playback
+                api_url: cmsItem.api_url, // IMPORTANT: Use CMS API
+                vod_remarks: cmsItem.vod_remarks, // Remarks usually contain "Updated to..." info
+                source: 'douban', // Treat as Douban enhanced
+                vod_douban_id: String(dItem.vod_id) // Preserve Douban ID for later
+            });
+            usedKeys.add(key);
+        } else {
+            // Douban result without playback source.
+            // We still show it because user might want to see info/trailer/or use Gemini to find it later
+            finalResults.push(dItem);
+            usedKeys.add(key);
         }
-    });
+    }
+
+    // 2. Add CMS Results that didn't match any Douban item
+    for (const [key, cItem] of cmsMap) {
+        if (!usedKeys.has(key)) {
+            finalResults.push(cItem);
+            usedKeys.add(key);
+        }
+    }
 
     return finalResults;
 };
