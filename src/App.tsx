@@ -125,7 +125,7 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
 
   return (
     <div 
-        className="relative w-full h-[210px] md:h-[360px] rounded-2xl overflow-hidden mb-8 md:mb-12 group shadow-2xl bg-[#0a0a0a] touch-pan-y border border-white/5"
+        className="relative w-full h-[500px] md:h-[360px] rounded-2xl overflow-hidden mb-8 md:mb-12 group shadow-2xl bg-[#0a0a0a] touch-pan-y border border-white/5"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -561,7 +561,7 @@ const App: React.FC = () => {
                        const doubanId = idParam.replace('db_', '');
                        await handleResolveDoubanMovie(doubanId, state?.name, state?.year, () => ignore);
                   } else {
-                       await handleSelectMovie(idParam, state?.apiUrl, state?.doubanId, () => ignore);
+                       await handleSelectMovie(idParam, state?.apiUrl, state?.doubanId, state?.name, () => ignore);
                   }
               } catch (e) {
                   console.error(e);
@@ -750,7 +750,8 @@ const App: React.FC = () => {
             if (isIgnored()) return;
 
             if (foundVideo) {
-                await handleSelectMovie(foundVideo.vod_id, foundVideo.api_url, doubanId, isIgnored);
+                // Pass undefined for name to prevent recursive loop if this fallback fails again
+                await handleSelectMovie(foundVideo.vod_id, foundVideo.api_url, doubanId, undefined, isIgnored);
             } else {
                 setError(`未自动匹配到影片 "${searchName}" 的播放源`);
                 setSearchQuery(searchName);
@@ -768,11 +769,18 @@ const App: React.FC = () => {
         }
   }
 
-  const handleSelectMovie = async (id: number | string, apiUrl: string | undefined, doubanId: string | undefined, isIgnored: () => boolean) => {
+  const handleSelectMovie = async (id: number | string, apiUrl: string | undefined, doubanId: string | undefined, name: string | undefined, isIgnored: () => boolean) => {
       try {
           const result = await getAggregatedMovieDetail(id, apiUrl);
           
           if (isIgnored()) return;
+
+          // FALLBACK LOGIC: If ID loading fails, try searching by name
+          if (!result && name) {
+              console.warn("Direct load failed, falling back to name search:", name);
+              await handleResolveDoubanMovie(doubanId || '', name, undefined, isIgnored);
+              return;
+          }
 
           if (result && result.main) {
               const { main, alternatives } = result;
@@ -961,7 +969,7 @@ const App: React.FC = () => {
       }
 
       if (item.api_url) {
-          navigate(`/play/${item.vod_id}`, { state: { doubanId: item.vod_douban_id, apiUrl: item.api_url } });
+          navigate(`/play/${item.vod_id}`, { state: { doubanId: item.vod_douban_id, apiUrl: item.api_url, name: item.vod_name } });
           return;
       }
 
@@ -969,7 +977,7 @@ const App: React.FC = () => {
           navigate(`/play/db_${item.vod_id}`, { state: { name: item.vod_name, pic: item.vod_pic, year: item.vod_year } });
           return;
       }
-      navigate(`/play/${item.vod_id}`);
+      navigate(`/play/${item.vod_id}`, { state: { name: item.vod_name } });
   };
 
   return (
