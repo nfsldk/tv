@@ -35,22 +35,18 @@ function filterAdsFromM3U8(m3u8Content: string) {
     let inAdBlock = false;
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
-        // Remove lines associated with ads
         if (line.includes('EXT-X-CUE-OUT') || line.includes('SCTE35') || (line.includes('DATERANGE') && line.includes('SCTE35'))) { inAdBlock = true; continue; }
         if (line.includes('EXT-X-CUE-IN')) { inAdBlock = false; continue; }
-        // Also remove discontinuities inside ad blocks or if they are just floaters (aggressive filtering)
         if (inAdBlock || line.includes('EXT-X-DISCONTINUITY')) continue;
         filteredLines.push(lines[i]);
     }
     return filteredLines.join('\n');
 }
 
-// Convert relative paths in M3U8 to absolute paths based on the manifest URL
 function resolveRelativePaths(content: string, baseUrl: string) {
     const lines = content.split('\n');
     return lines.map(line => {
         const trimmed = line.trim();
-        // If it's not a comment, empty, or already absolute/blob
         if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('http') && !trimmed.startsWith('blob:') && !trimmed.startsWith('data:')) {
              try {
                  return new URL(trimmed, baseUrl).href;
@@ -99,16 +95,14 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
   const propsRef = useRef(props);
   const isSwitchingRef = useRef(false);
   
-  // Keep props fresh
   useEffect(() => { propsRef.current = props; }, [props]);
-
   useImperativeHandle(ref, () => ({ getInstance: () => artRef.current }));
 
-  // Initialize Artplayer
   useEffect(() => {
+      // 1. DOM Check
       if (!containerRef.current) return;
       
-      // CRITICAL: Pass false to destroy() to PREVENT removing the DOM node managed by React.
+      // 2. Cleanup previous instance strictly without removing DOM
       if (artRef.current) {
           artRef.current.destroy(false);
           artRef.current = null;
@@ -117,14 +111,17 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
       console.log('Initializing Artplayer with URL:', url);
 
       try {
-          const plugins = [];
+          // 3. Robust Module Imports (Fixing "Reference Errors")
+          // Ensure we get the class constructor even if it's hidden behind .default
+          const ArtplayerClass = (Artplayer as any).default || Artplayer;
+          const HlsClass = (Hls as any).default || Hls;
           
-          // Robust Plugin Loading
           let DanmukuPlugin: any = artplayerPluginDanmuku;
           if (typeof artplayerPluginDanmuku !== 'function' && (artplayerPluginDanmuku as any).default) {
               DanmukuPlugin = (artplayerPluginDanmuku as any).default;
           }
 
+          const plugins = [];
           if (DanmukuPlugin) {
               plugins.push(DanmukuPlugin({
                   danmuku: async () => {
@@ -143,13 +140,13 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
               }));
           }
 
-          const art = new Artplayer({
+          const art = new ArtplayerClass({
               container: containerRef.current,
               url: propsRef.current.url || '',
               type: 'm3u8', 
               poster: propsRef.current.poster,
               autoplay: propsRef.current.autoplay,
-              muted: propsRef.current.autoplay, // Muted autoplay to ensure video starts
+              muted: propsRef.current.autoplay,
               volume: 0.7,
               isLive: false,
               autoMini: true,
@@ -190,64 +187,53 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                           return;
                       }
 
-                      // Check for native HLS support (Safari)
                       if (video.canPlayType('application/vnd.apple.mpegurl')) {
                           video.src = url;
                           return;
                       }
 
-                      // Use Hls.js
-                      if (Hls.isSupported()) {
+                      if (HlsClass && HlsClass.isSupported()) {
                           if (art.hls) art.hls.destroy();
                           
                           let playUrl = url;
                           const originalUrl = url;
                           
-                          // --- M3U8 Ad Filtering Logic ---
-                          // Attempt to fetch, filter ads, and create Blob URL for HTTP streams
                           try {
                               if (url.startsWith('http')) {
-                                  console.log('Checking M3U8 for ads...');
-                                  // Use standard fetch. If CORS fails, it jumps to catch.
+                                  // Use fetch directly to avoid proxy issues with some video servers
+                                  // If CORS fails, we catch error and use original URL
                                   const response = await fetch(url);
                                   if (response.ok) {
                                       const rawText = await response.text();
                                       const filteredText = filterAdsFromM3U8(rawText);
-                                      
-                                      // If content was modified (or just to be safe with relative paths in Blob)
                                       const resolvedText = resolveRelativePaths(filteredText, url);
-                                      
                                       const blob = new Blob([resolvedText], { type: 'application/vnd.apple.mpegurl' });
                                       playUrl = URL.createObjectURL(blob);
-                                      console.log('M3U8 loaded via Blob (Ad filtered)');
+                                      console.log('M3U8 Ad Filter Active');
                                   }
                               }
                           } catch (e) {
-                              console.warn('Ad filtering skipped (fetch failed/CORS), using direct URL.', e);
+                              console.warn('Ad filtering skipped (CORS/Net Error), using direct URL.');
                               playUrl = url;
                           }
 
-                          const hls = new Hls({ 
+                          const hls = new HlsClass({ 
                               debug: false, 
                               enableWorker: true,
                               maxBufferLength: 30,
                               maxMaxBufferLength: 600,
                           });
                           
-                          // Handle HLS Errors
-                          hls.on(Hls.Events.ERROR, function (event, data) {
+                          hls.on(HlsClass.Events.ERROR, function (event: any, data: any) {
                                if (data.fatal) {
                                    switch (data.type) {
-                                   case Hls.ErrorTypes.NETWORK_ERROR:
-                                       console.warn('HLS Network Error, recovering...');
+                                   case HlsClass.ErrorTypes.NETWORK_ERROR:
                                        hls.startLoad();
                                        break;
-                                   case Hls.ErrorTypes.MEDIA_ERROR:
-                                       console.warn('HLS Media Error, recovering...');
+                                   case HlsClass.ErrorTypes.MEDIA_ERROR:
                                        hls.recoverMediaError();
                                        break;
                                    default:
-                                       console.error('HLS Fatal Error:', data);
                                        art.notice.show = '视频加载失败: ' + (data.details || '未知错误');
                                        hls.destroy();
                                        break;
@@ -255,10 +241,9 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                                }
                            });
 
-                          // Initialize P2P Engine
+                          // P2P Engine Robust Import
                           try {
                               let EngineClass: any = P2PEngine;
-                              // Handle ESM/CommonJS default export interop
                               if (typeof P2PEngine !== 'function' && (P2PEngine as any).default) {
                                   EngineClass = (P2PEngine as any).default;
                               }
@@ -267,28 +252,21 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                                   new EngineClass(hls, {
                                       maxBufSize: 1024 * 1024 * 1024,
                                       p2pEnabled: true,
-                                      // IMPORTANT: Use original URL as channelId because playUrl might be a transient Blob
                                       channelId: function(_segmentUrl: string) { return originalUrl; } 
                                   });
-                                  console.log('P2P Engine enabled');
+                                  console.log('P2P Engine Enabled');
                               }
-                          } catch (e) {
-                              console.warn('P2P Engine failed to initialize', e);
-                          }
+                          } catch (e) { console.warn('P2P Init Warning', e); }
                           
-                          // Load source and attach media
                           hls.loadSource(playUrl);
                           hls.attachMedia(video);
-                          
                           art.hls = hls;
                           
-                          // Cleanup listener
                           art.on('destroy', () => {
                               if (art.hls) {
                                   art.hls.destroy();
                                   art.hls = null;
                               }
-                              // Revoke Blob URL to free memory
                               if (playUrl.startsWith('blob:')) {
                                   URL.revokeObjectURL(playUrl);
                               }
@@ -303,63 +281,48 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
           art.on('video:ended', () => { if (propsRef.current.onNext) propsRef.current.onNext(); });
           
           art.on('ready', () => {
-              console.log('Artplayer ready');
               (art as any).resize();
-              
               if (propsRef.current.autoplay) {
-                   art.play().catch(e => {
-                       console.warn('Autoplay blocked, trying muted', e);
+                   art.play().catch(() => {
                        art.muted = true;
-                       art.play().catch(e2 => console.warn('Muted autoplay blocked', e2));
+                       art.play();
                    });
               }
           });
           
           artRef.current = art;
-
-          // Force Resize to ensure visibility
+          
+          // Safety resize
           setTimeout(() => { if(artRef.current) (artRef.current as any).resize(); }, 500);
 
       } catch (e) {
-          console.error("Artplayer init fatal error:", e);
+          console.error("Artplayer Init Error:", e);
       }
 
       return () => {
           if (artRef.current) {
-              artRef.current.destroy(false); // Do not remove DOM on cleanup to work with React
+              artRef.current.destroy(false); // Keep DOM
               artRef.current = null;
           }
       };
   }, []); 
 
-  // Handle URL switching
+  // Watch for URL changes
   useEffect(() => {
       const art = artRef.current;
       if (art && url && url !== art.url) {
           if (isSwitchingRef.current) return;
-          
-          console.log('Switching video URL to:', url);
           isSwitchingRef.current = true;
           art.loading.show = true;
           
           (art as any).switchUrl(url, 'm3u8').then(() => {
               art.loading.show = false;
               art.notice.show = '视频已切换';
-              
-              if (art.plugins.artplayerPluginDanmuku) {
-                  (art.plugins.artplayerPluginDanmuku as any).load();
-              }
-              
-              if (autoplay) {
-                  art.play().catch(() => {
-                      art.muted = true;
-                      art.play();
-                  });
-              }
+              if (art.plugins.artplayerPluginDanmuku) (art.plugins.artplayerPluginDanmuku as any).load();
+              if (autoplay) art.play().catch(() => { art.muted = true; art.play(); });
           }).catch((err: any) => {
               art.loading.show = false;
-              console.error('Switch URL failed:', err);
-              art.notice.show = '加载失败: ' + (err.message || '未知错误');
+              art.notice.show = '加载失败';
           }).finally(() => {
               isSwitchingRef.current = false;
           });
@@ -368,7 +331,7 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
 
   return (
       <div className={`w-full h-full bg-black relative z-0 overflow-hidden ${className || ''}`} style={{ minHeight: '300px' }}>
-          <div ref={containerRef} className="w-full h-full absolute inset-0" />
+          <div ref={containerRef} className="w-full h-full absolute inset-0 bg-black" />
       </div>
   );
 });
