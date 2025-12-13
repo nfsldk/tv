@@ -54,9 +54,15 @@ class PlayerErrorBoundary extends React.Component<{ children: React.ReactNode },
   render() {
     if (this.state.hasError) {
       return (
-        <div className="w-full h-full bg-black flex items-center justify-center text-red-500 flex-col gap-2">
+        <div className="w-full h-full bg-black flex items-center justify-center text-red-500 flex-col gap-2 p-4 text-center">
            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-10 h-10"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
-           <span className="text-sm">播放器加载失败</span>
+           <span className="text-sm font-bold">播放器加载遇到问题</span>
+           <button 
+             onClick={() => this.setState({ hasError: false })}
+             className="px-4 py-1.5 bg-white/10 rounded-full text-xs text-white hover:bg-brand hover:text-black transition-colors mt-2"
+           >
+             尝试重新加载
+           </button>
         </div>
       );
     }
