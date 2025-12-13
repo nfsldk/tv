@@ -104,9 +104,10 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
   useEffect(() => {
       if (!containerRef.current) return;
       
-      // Force cleanup with TRUE to remove DOM nodes
+      // CRITICAL FIX: Pass false to destroy() to PREVENT removing the DOM node managed by React.
+      // If true is passed, strict mode or re-renders will cause Artplayer to attach to a detached node.
       if (artRef.current) {
-          artRef.current.destroy(true);
+          artRef.current.destroy(false);
           artRef.current = null;
       }
 
@@ -114,8 +115,15 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
 
       try {
           const plugins = [];
-          if (artplayerPluginDanmuku) {
-              plugins.push(artplayerPluginDanmuku({
+          
+          // Robust Plugin Loading
+          let DanmukuPlugin: any = artplayerPluginDanmuku;
+          if (typeof artplayerPluginDanmuku !== 'function' && (artplayerPluginDanmuku as any).default) {
+              DanmukuPlugin = (artplayerPluginDanmuku as any).default;
+          }
+
+          if (DanmukuPlugin) {
+              plugins.push(DanmukuPlugin({
                   danmuku: async () => {
                       try {
                           return await fetchDanmaku(propsRef.current.title || '', propsRef.current.episodeIndex || 0);
@@ -194,17 +202,20 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                           // --- M3U8 Filtering Logic ---
                           // Attempt to fetch, filter ads, and create Blob URL
                           try {
-                              console.log('Attempting to filter ads from M3U8...');
-                              const response = await fetch(url);
-                              if (response.ok) {
-                                  const rawText = await response.text();
-                                  const filteredText = filterAdsFromM3U8(rawText);
-                                  // IMPORTANT: We must resolve relative paths because Blob URL changes the base
-                                  const resolvedText = resolveRelativePaths(filteredText, url);
-                                  
-                                  const blob = new Blob([resolvedText], { type: 'application/vnd.apple.mpegurl' });
-                                  playUrl = URL.createObjectURL(blob);
-                                  console.log('Ad filtering successful, using Blob URL');
+                              // Only filter if not a blob/local url already
+                              if (url.startsWith('http')) {
+                                  console.log('Attempting to filter ads from M3U8...');
+                                  const response = await fetch(url);
+                                  if (response.ok) {
+                                      const rawText = await response.text();
+                                      const filteredText = filterAdsFromM3U8(rawText);
+                                      // IMPORTANT: We must resolve relative paths because Blob URL changes the base
+                                      const resolvedText = resolveRelativePaths(filteredText, url);
+                                      
+                                      const blob = new Blob([resolvedText], { type: 'application/vnd.apple.mpegurl' });
+                                      playUrl = URL.createObjectURL(blob);
+                                      console.log('Ad filtering successful, using Blob URL');
+                                  }
                               }
                           } catch (e) {
                               console.warn('Ad filtering fetch failed (likely CORS), falling back to direct URL.', e);
@@ -249,8 +260,9 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                                   new EngineClass(hls, {
                                       maxBufSize: 1024 * 1024 * 1024,
                                       p2pEnabled: true,
-                                      // CRITICAL: Use original URL as channelId to ensure P2P works even if we use Blob URL
-                                      channelId: function(url: string) { return url; } 
+                                      // CRITICAL FIX: Use the original 'url' (from m3u8 function scope), NOT the 'playUrl' (which might be blob)
+                                      // And ignore the argument passed to channelId, because that would be the blob url if filtered
+                                      channelId: function(_segmentUrl: string) { return url; } 
                                   });
                                   console.log('P2P Engine enabled');
                               }
@@ -308,7 +320,7 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
 
       return () => {
           if (artRef.current) {
-              artRef.current.destroy(true); // TRUE = Remove from DOM
+              artRef.current.destroy(false); // CRITICAL: Do not remove DOM on cleanup
               artRef.current = null;
           }
       };
