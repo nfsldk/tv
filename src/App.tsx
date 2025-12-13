@@ -617,6 +617,7 @@ const App: React.FC = () => {
       const path = pathParts[1] || '';
       
       if (path === 'play') {
+          setActiveTab('play_page'); // Explicitly set activeTab to prevent Home UI overlap
           const idParam = pathParts[2];
           if (idParam) {
               if (idParam.startsWith('db_')) {
