@@ -445,7 +445,7 @@ const App: React.FC = () => {
   const [hasSearched, setHasSearched] = useState(false);
   const [currentMovie, setCurrentMovie] = useState<VodDetail | null>(null);
   
-  // Ref to hold the current VOD ID to prevent stale closures and unnecessary re-fetches
+  // Ref to hold the current VOD ID from the URL to prevent stale closures and unnecessary re-fetches
   const currentVodIdRef = useRef<string | null>(null);
   
   const [availableSources, setAvailableSources] = useState<PlaySource[]>([]);
@@ -490,17 +490,20 @@ const App: React.FC = () => {
 
   // --- Routing Logic (Separated from Data Fetching) ---
   useEffect(() => {
-      const pathParts = location.pathname.split('/');
-      const path = pathParts[1] || '';
+      // Use startsWith for stricter/safer check for play pages
+      const isPlayPage = location.pathname.startsWith('/play');
       
-      if (path === 'play') {
+      if (isPlayPage) {
           setActiveTab('play_page');
-          // Only if we completely left play page, reset. 
-          // If we are just switching IDs (handled by next effect), we don't want to flash null here
+          // DO NOT clear currentMovie here.
       } else {
+          const pathParts = location.pathname.split('/');
+          const path = pathParts[1] || '';
           const tab = URL_TO_TAB[path] || 'home';
           setActiveTab(tab);
-          // Only clear movie if strictly navigating away from play page to a non-play page
+          
+          // Only clear movie if we are DEFINITELY not on the play page
+          // and we have a movie loaded.
           if (currentMovie || currentVodIdRef.current) {
                setCurrentMovie(null);
                currentVodIdRef.current = null;
@@ -517,12 +520,16 @@ const App: React.FC = () => {
           const state = location.state as any;
           
           // Clean up ID (remove prefixes for comparison)
-          const rawId = idParam.replace(/^db_|^cms_/, '');
+          // const rawId = idParam.replace(/^db_|^cms_/, '');
           
-          // Check if we are already viewing this movie using the REF (stable source of truth)
-          if (currentVodIdRef.current === rawId || currentVodIdRef.current === idParam) {
-              return; // Already loaded/loading this movie
+          // Check against the EXACT param in URL first to prevent reloading on same URL
+          if (currentVodIdRef.current === idParam) {
+              return; 
           }
+          
+          // LOCK THE REF TO THE URL PARAM IMMEDIATELY
+          // This prevents infinite loops if resolving takes time or causes rerenders
+          currentVodIdRef.current = idParam; 
 
           if (idParam.startsWith('db_')) {
               const doubanId = idParam.replace('db_', '');
@@ -638,8 +645,9 @@ const App: React.FC = () => {
         requestRef.current = requestId;
         setLoading(true);
         setError('');
-        setCurrentMovie(null);
-        currentVodIdRef.current = null; // Reset REF too
+        // Don't clear currentMovie immediately to avoid flicker if re-resolving 
+        // setCurrentMovie(null); 
+        // currentVodIdRef.current = null; // REMOVED to prevent loop
 
         try {
             let searchName = name;
@@ -700,6 +708,7 @@ const App: React.FC = () => {
                 setError(`未找到影片 "${searchName}" 的播放资源`);
                 setSearchQuery(searchName);
                 setLoading(false);
+                setCurrentMovie(null); // Clear only on error
             }
 
         } catch (e) {
@@ -707,6 +716,7 @@ const App: React.FC = () => {
             if (requestRef.current === requestId) {
                 setError('资源解析失败，请检查网络');
                 setLoading(false);
+                setCurrentMovie(null);
             }
         }
   }
@@ -720,8 +730,9 @@ const App: React.FC = () => {
       setShowSidePanel(true);
       setSidePanelTab('episodes');
       
-      // Update REF immediately to block duplicate requests
-      currentVodIdRef.current = String(id).replace(/^cms_/, '');
+      // REMOVED: Do not update currentVodIdRef here. 
+      // The useEffect owns the Ref based on the URL. 
+      // handleSelectMovie just fetches the content for that ID.
 
       try {
           const result = await getAggregatedMovieDetail(id, apiUrl);
