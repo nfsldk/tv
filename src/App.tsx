@@ -676,19 +676,22 @@ const App: React.FC = () => {
             const strategies = [searchName, cleanName, firstPart, nameWithoutSeason];
             const uniqueStrategies = [...new Set(strategies)].filter(s => s && s.length > 1);
 
-            let candidates: VodItem[] = [];
-            let foundVideo: VodItem | null = null;
+            // PARALLEL SEARCH for speed
+            const searchPromises = uniqueStrategies.map(term => searchCms(term).then(res => ({ term, list: res.list || [] })));
+            const results = await Promise.all(searchPromises);
 
-            // Try each strategy until we find results
+            let candidates: VodItem[] = [];
+            // Merge results respecting strategy order
             for (const term of uniqueStrategies) {
-                const res = await searchCms(term);
-                if (res.list && res.list.length > 0) {
-                    candidates = res.list as VodItem[];
-                    // If we find results, we can stop fetching, but we still need to pick the best one
-                    break; 
+                const result = results.find(r => r.term === term);
+                if (result && result.list.length > 0) {
+                    // Filter duplicates
+                    const newItems = (result.list as VodItem[]).filter(newItem => !candidates.some(c => c.vod_id === newItem.vod_id));
+                    candidates = [...candidates, ...newItems];
                 }
             }
 
+            let foundVideo: VodItem | null = null;
             if (candidates.length > 0) {
                  const normalize = (str: string) => str.replace(/[\s\.\-_:：，,]+/g, '').toLowerCase();
                  const targetFingerprint = normalize(searchName);
@@ -713,7 +716,7 @@ const App: React.FC = () => {
             if (foundVideo) {
                 await handleSelectMovie(foundVideo.vod_id, foundVideo.api_url, doubanId);
             } else {
-                setError(`未找到影片 "${searchName}" 的播放资源`);
+                setError(`未自动匹配到影片 "${searchName}" 的播放源`);
                 setSearchQuery(searchName);
                 setLoading(false);
                 setCurrentMovie(null); // Clear only on error
@@ -738,10 +741,6 @@ const App: React.FC = () => {
       setShowSidePanel(true);
       setSidePanelTab('episodes');
       
-      // REMOVED: Do not update currentVodIdRef here. 
-      // The useEffect owns the Ref based on the URL. 
-      // handleSelectMovie just fetches the content for that ID.
-
       try {
           const result = await getAggregatedMovieDetail(id, apiUrl);
           
@@ -987,7 +986,7 @@ const App: React.FC = () => {
                           </div>
                       </div>
                       <div className="mt-8 max-w-lg w-full">
-                          <p className="text-gray-400 mb-4 text-sm">尝试手动搜索该影片：</p>
+                          <p className="text-gray-400 mb-4 text-sm">若长时间未播放，可尝试手动搜索：</p>
                            <div className="flex gap-2">
                               <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="输入影片名称..." className="flex-1 bg-[#121620] border border-white/10 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-brand/50" />
                               <button onClick={() => triggerSearch(searchQuery)} className="bg-brand text-black font-bold px-6 rounded-xl hover:bg-brand-hover transition-colors">搜索</button>
@@ -1000,11 +999,11 @@ const App: React.FC = () => {
               {isPlayPage && !currentMovie && !loading && !error && (
                   <div className="flex flex-col items-center justify-center py-32 text-center animate-fade-in min-h-[50vh]">
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" className="w-20 h-20 text-gray-600 mb-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" /></svg>
-                      <h2 className="text-2xl font-bold text-white mb-2">未找到资源</h2>
-                      <p className="text-gray-400 mb-8 max-w-md">我们努力搜索了，但似乎没能自动匹配到该影片的播放源。</p>
+                      <h2 className="text-2xl font-bold text-white mb-2">未找到播放资源</h2>
+                      <p className="text-gray-400 mb-8 max-w-md">抱歉，自动匹配失败。您可以尝试使用不同的关键词搜索。</p>
                       <div className="w-full max-w-md">
                            <div className="flex gap-2">
-                              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="尝试输入影片名称搜索..." className="flex-1 bg-[#121620] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand/50" />
+                              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="输入影片名称搜索..." className="flex-1 bg-[#121620] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand/50" />
                               <button onClick={() => triggerSearch(searchQuery)} className="bg-brand text-black font-bold px-6 rounded-xl hover:bg-brand-hover transition-colors">搜索</button>
                            </div>
                       </div>
@@ -1012,7 +1011,7 @@ const App: React.FC = () => {
               )}
 
               {currentMovie && isPlayPage && (
-                  <section className="mb-12 animate-fade-in space-y-6 mt-4">
+                  <section className="mb-12 animate-fade-in space-y-6 mt-4 min-h-[500px]">
                       <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-gray-400 hover:text-white mb-4">
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" /></svg>
                           返回
