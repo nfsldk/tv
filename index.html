@@ -4,12 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="referrer" content="no-referrer" />
-    <meta name="keywords" content="免费电影,高清影视,在线观看,CineStream,美剧,韩剧,动漫,综艺,P2P加速" />
-    <meta name="description" content="CineStream AI - 您的智能免费影视库。提供海量高清电影、电视剧、动漫和综艺在线观看，支持智能P2P加速与AI助手互动。" />
     <title>CineStream AI - 免费高清影视 | 智能P2P加速</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     
-    <!-- Tailwind CSS (Keep CDN for simplicity in this hybrid setup, or move to PostCSS later) -->
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -40,7 +38,6 @@
         }
     </script>
     
-    <!-- DNS Prefetch for Image Proxy -->
     <link rel="dns-prefetch" href="https://daili.laidd.de5.net">
     <link rel="preconnect" href="https://daili.laidd.de5.net">
 
@@ -60,31 +57,9 @@
         .custom-scrollbar::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.3); border-radius: 4px; }
         
-        /* Mobile visible scrollbar trajectory */
-        .visible-scrollbar::-webkit-scrollbar {
-            height: 3px; /* Thin horizontal bar */
-            display: block;
-        }
-        .visible-scrollbar::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 10px;
-            margin: 0 10px;
-        }
-        .visible-scrollbar::-webkit-scrollbar-thumb {
-            background: rgba(34, 197, 94, 0.4); /* Brand color semi-transparent */
-            border-radius: 10px;
-        }
-        .visible-scrollbar {
-            scrollbar-width: thin;
-            scrollbar-color: rgba(34, 197, 94, 0.4) rgba(255, 255, 255, 0.05);
-        }
-
-        .line-clamp-3 {
-            display: -webkit-box;
-            -webkit-line-clamp: 3;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-        }
+        .visible-scrollbar::-webkit-scrollbar { height: 3px; display: block; }
+        .visible-scrollbar::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.05); border-radius: 10px; margin: 0 10px; }
+        .visible-scrollbar::-webkit-scrollbar-thumb { background: rgba(34, 197, 94, 0.4); border-radius: 10px; }
     </style>
 <script type="importmap">
 {

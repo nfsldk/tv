@@ -99,26 +99,19 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
     >
-      {/* Background Layer */}
       <div key={activeItem.vod_id + '_bg'} className="absolute inset-0 animate-fade-in transition-all duration-700">
           <ImageWithFallback 
               src={activeItem.vod_pic} 
               alt={activeItem.vod_name} 
               className="w-full h-full object-cover blur-md opacity-40 scale-105" 
           />
-          {/* Vertical Gradient for Mobile */}
           <div className="absolute inset-0 bg-gradient-to-t from-[#020617] via-[#020617]/60 to-transparent z-0"></div>
-          {/* Horizontal Gradient for Desktop */}
           <div className="absolute inset-0 bg-gradient-to-r from-[#020617]/80 via-transparent to-transparent z-0 hidden md:block"></div>
       </div>
 
-      {/* Content Container */}
       <div key={activeItem.vod_id + '_content'} className="absolute inset-0 z-10 flex items-center justify-center">
         <div className="container mx-auto px-6 md:px-12 w-full h-full flex items-center justify-center md:justify-start">
-            {/* Flex Column on Mobile, Row on Desktop */}
             <div className="flex flex-col md:flex-row items-center md:items-center gap-6 md:gap-10 w-full animate-slide-up max-w-4xl md:max-w-none pt-4 md:pt-0">
-                
-                {/* Poster: Larger on mobile now */}
                 <div className="flex-shrink-0 w-[180px] md:w-[220px] aspect-[2/3] rounded-xl overflow-hidden shadow-[0_10px_30px_rgba(0,0,0,0.5)] border-2 border-white/20 relative z-20 hover:scale-105 transition-transform duration-500 bg-black">
                     <ImageWithFallback 
                         src={activeItem.vod_pic} 
@@ -127,17 +120,13 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
                     />
                 </div>
 
-                {/* Info Section: Center on mobile, Left on desktop */}
                 <div className="flex-1 text-center md:text-left space-y-3 md:space-y-4 flex flex-col items-center md:items-start justify-center min-w-0">
-                    
-                    {/* Title - Bigger */}
                     <h2 className="text-2xl md:text-5xl font-black text-white leading-tight drop-shadow-xl tracking-tight line-clamp-2">
                         {activeItem.vod_name}
                     </h2>
 
-                    {/* Tags - Centered on mobile */}
                     <div className="flex flex-wrap items-center justify-center md:justify-start gap-2">
-                        <span className="bg-brand text-black text-xs font-black px-2 py-0.5 rounded uppercase tracking-wider shadow-lg shadow-brand/20">
+                        <span className="bg-[#ffb400] text-black text-xs font-black px-2 py-0.5 rounded uppercase tracking-wider shadow-lg shadow-brand/20">
                             {detail?.score || activeItem.vod_score || 'HOT'}
                         </span>
                         <span className="bg-white/10 border border-white/10 text-gray-200 text-xs font-medium px-2 py-0.5 rounded backdrop-blur-md">
@@ -148,18 +137,15 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
                         </span>
                     </div>
 
-                    {/* Sub-info */}
                     <div className="text-gray-300 text-xs md:text-base font-medium line-clamp-1 opacity-90">
                         {detail?.director && <span className="mr-3">导演: {detail.director}</span>}
                         {detail?.actor && <span>主演: {detail.actor}</span>}
                     </div>
 
-                    {/* Description - Visible on mobile now as we have space */}
                     <p className="text-gray-400 text-xs md:text-sm leading-relaxed line-clamp-3 drop-shadow-md max-w-2xl">
                         {detail?.content ? detail.content.replace(/<[^>]+>/g, '') : (activeItem.vod_remarks || "暂无简介...")}
                     </p>
 
-                    {/* Action Buttons */}
                     <div className="pt-2 md:pt-4 flex flex-row gap-4">
                         <button 
                             onClick={() => onPlay(activeItem)}
@@ -170,22 +156,12 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
                             </svg>
                             <span>播放</span>
                         </button>
-                        
-                        <button 
-                            className="bg-white/10 text-white hover:bg-white/20 border border-white/10 backdrop-blur-md text-sm md:text-base font-bold px-6 py-2 md:px-8 md:py-3 rounded-full flex items-center gap-2 transition-all hover:scale-105 whitespace-nowrap"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
-                            </svg>
-                            <span>详情</span>
-                        </button>
                     </div>
                 </div>
             </div>
         </div>
       </div>
 
-      {/* Indicators */}
       <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 z-20">
           {items.map((_, idx) => (
               <button 
@@ -195,20 +171,6 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
               />
           ))}
       </div>
-      
-      {/* Arrows (Hidden on Mobile) */}
-      <button 
-        onClick={(e) => { e.stopPropagation(); handlePrev(); }}
-        className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/20 text-white/50 hover:bg-black/50 hover:text-white transition-all hidden md:flex backdrop-blur-sm border border-white/5"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
-      </button>
-      <button 
-        onClick={(e) => { e.stopPropagation(); handleNext(); }}
-        className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/20 text-white/50 hover:bg-black/50 hover:text-white transition-all hidden md:flex backdrop-blur-sm border border-white/5"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
-      </button>
     </div>
   );
 };
@@ -239,7 +201,6 @@ const HorizontalSection = ({ title, items, id, onItemClick, onItemContextMenu }:
                 </h3>
             </div>
             <div className="relative group">
-                 {/* Left Arrow Button */}
                  <button
                     className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-black/60 hover:bg-brand text-white p-2 rounded-full opacity-0 group-hover/section:opacity-100 transition-all hidden md:flex border border-white/10 shadow-lg -ml-4"
                     onClick={() => scroll('left')}
@@ -259,7 +220,7 @@ const HorizontalSection = ({ title, items, id, onItemClick, onItemContextMenu }:
                                 <ImageWithFallback src={item.vod_pic} alt={item.vod_name} className="w-full h-full object-cover transform group-hover/card:scale-105 transition-transform duration-500" />
                                 <div className="absolute inset-0 bg-black/0 group-hover/card:bg-black/20 transition-colors"></div>
                                 {(item as any).vod_remarks && <div className="absolute top-1 right-1 bg-black/60 text-[10px] text-white px-1.5 py-0.5 rounded backdrop-blur-sm">{(item as any).vod_remarks}</div>}
-                                {(item as any).vod_score && <div className="absolute bottom-1 right-1 text-brand font-bold text-xs drop-shadow-md">{(item as any).vod_score}</div>}
+                                {(item as any).vod_score && <div className="absolute bottom-1 right-1 text-[#ffb400] font-bold text-xs drop-shadow-md">{(item as any).vod_score}</div>}
                                 {(item as HistoryItem).episode_name && (
                                      <div className="absolute bottom-0 left-0 right-0 bg-brand/90 text-black text-[10px] font-bold px-2 py-1 text-center">
                                          上次看到: {(item as HistoryItem).episode_name}
@@ -271,7 +232,6 @@ const HorizontalSection = ({ title, items, id, onItemClick, onItemContextMenu }:
                     ))}
                 </div>
 
-                {/* Right Arrow Button */}
                 <button
                     className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-black/60 hover:bg-brand text-white p-2 rounded-full opacity-0 group-hover/section:opacity-100 transition-all hidden md:flex border border-white/10 shadow-lg -mr-4"
                     onClick={() => scroll('right')}
@@ -340,7 +300,7 @@ const CategoryGrid = ({ category, onItemClick }: { category: string, onItemClick
                          <div key={item.vod_id} onClick={() => onItemClick(item)} className="group cursor-pointer">
                              <div className="aspect-[2/3] bg-gray-900 rounded-xl overflow-hidden relative shadow-lg border border-white/5 group-hover:border-brand/50 transition-all duration-300 hover:-translate-y-1">
                                  <ImageWithFallback src={item.vod_pic} alt={item.vod_name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                                 {item.vod_score && <div className="absolute top-1 right-1 bg-brand text-black text-[10px] font-bold px-1.5 py-0.5 rounded">{item.vod_score}</div>}
+                                 {item.vod_score && <div className="absolute top-1 right-1 bg-[#ffb400] text-black text-[10px] font-bold px-1.5 py-0.5 rounded">{item.vod_score}</div>}
                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors"></div>
                              </div>
                              <h4 className="mt-2 text-sm text-gray-200 font-bold truncate group-hover:text-brand transition-colors">{item.vod_name}</h4>
@@ -482,7 +442,6 @@ const App: React.FC = () => {
   const [hasSearched, setHasSearched] = useState(false);
   const [currentMovie, setCurrentMovie] = useState<VodDetail | null>(null);
   
-  // Player State
   const [availableSources, setAvailableSources] = useState<PlaySource[]>([]);
   const [currentSourceIndex, setCurrentSourceIndex] = useState(0);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
@@ -490,8 +449,6 @@ const App: React.FC = () => {
   const [showSidePanel, setShowSidePanel] = useState(true);
   const [sidePanelTab, setSidePanelTab] = useState<'episodes' | 'sources'>('episodes');
   const [isReverseOrder, setIsReverseOrder] = useState(false);
-  
-  // Pagination State for Episodes
   const [currentEpisodePage, setCurrentEpisodePage] = useState(0);
   const EPISODES_PER_PAGE = 36;
 
@@ -500,7 +457,6 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
 
-  // Context Menu State
   const [contextMenu, setContextMenu] = useState<{ visible: boolean, x: number, y: number, item: VodItem | null }>({ visible: false, x: 0, y: 0, item: null });
   
   const [homeSections, setHomeSections] = useState<{
@@ -514,118 +470,14 @@ const App: React.FC = () => {
   const [heroItems, setHeroItems] = useState<VodItem[]>([]);
   const [watchHistory, setWatchHistory] = useState<HistoryItem[]>([]);
 
-  // Initialize Sources from Cloud on App Mount
   useEffect(() => {
       initVodSources();
   }, []);
 
-  // SEO Update logic
-  useEffect(() => {
-      const path = location.pathname;
-      const updateSEO = (title: string, description: string, keywords: string, image?: string) => {
-        document.title = title;
-        const setMeta = (name: string, content: string) => {
-            let element = document.querySelector(`meta[name="${name}"]`);
-            if (!element) {
-                element = document.createElement('meta');
-                element.setAttribute('name', name);
-                document.head.appendChild(element);
-            }
-            element.setAttribute('content', content);
-        };
-        const setOg = (property: string, content: string) => {
-            let element = document.querySelector(`meta[property="${property}"]`);
-            if (!element) {
-                element = document.createElement('meta');
-                element.setAttribute('property', property);
-                document.head.appendChild(element);
-            }
-            element.setAttribute('content', content);
-        };
-        setMeta('description', description);
-        setMeta('keywords', keywords);
-        setOg('og:title', title);
-        setOg('og:description', description);
-        setOg('og:type', 'website');
-        setOg('og:site_name', 'CineStream AI');
-        setOg('og:url', window.location.href);
-        if (image) setOg('og:image', image);
-      };
-
-      if (path === '/') {
-          updateSEO(
-              'CineStream AI-海量高清电影电视剧动漫综艺在线观看_中国领先的影视聚合平台',
-              'CineStream AI为您提供最新最热的电影、电视剧、综艺、动漫高清在线观看。包含国产剧、美剧、韩剧、日剧等海量资源，支持智能P2P加速与AI助手互动，致力于为您提供极致的视听体验。',
-              '电影,电视剧,综艺,动漫,视频,在线观看,CineStream AI,美剧,韩剧,4K,高清,免费视频'
-          );
-      } else if (path === '/dianying') {
-          updateSEO(
-              '电影频道-2025最新好看的电影大全-高清电影在线观看-CineStream AI',
-              'CineStream AI电影频道汇集了全球最新最热的大片，涵盖动作、喜剧、科幻、恐怖、爱情等多种类型，提供高清流畅的在线观看体验。',
-              '电影,电影大全,高清电影,免费电影,在线观看,动作片,喜剧片,科幻片,CineStream AI'
-          );
-      } else if (path === '/dianshiju') {
-          updateSEO(
-              '电视剧频道-2025最新好看的电视剧大全-高清电视剧在线观看-CineStream AI',
-              'CineStream AI电视剧频道为您提供最新热播的国产剧、美剧、韩剧、日剧、港台剧等，同步更新，高清免费在线观看。',
-              '电视剧,电视剧大全,高清电视剧,国产剧,美剧,韩剧,日剧,在线观看,CineStream AI'
-          );
-      } else if (path === '/dongman') {
-          updateSEO(
-              '动漫频道-2025最新好看的动漫大全-高清动漫在线观看-CineStream AI',
-              'CineStream AI动漫频道为您提供最新好看的日本动漫、国产动漫、欧美动漫，海量新番连载，高清在线观看。',
-              '动漫,动漫大全,日本动漫,国产动漫,新番,在线观看,CineStream AI'
-          );
-      } else if (path === '/zongyi') {
-          updateSEO(
-              '综艺频道-2025最新好看的综艺大全-高清综艺在线观看-CineStream AI',
-              'CineStream AI综艺频道为您提供最新最热的国内综艺、韩国综艺、欧美综艺等，真人秀、脱口秀应有尽有。',
-              '综艺,综艺大全,韩国综艺,真人秀,在线观看,CineStream AI'
-          );
-      } else if (path.startsWith('/play/') && currentMovie) {
-          const rawContent = currentMovie.vod_content ? currentMovie.vod_content.replace(/<[^>]+>/g, '').slice(0, 150) : '暂无简介';
-          const actors = currentMovie.vod_actor || '';
-          const director = currentMovie.vod_director || '';
-          const type = currentMovie.type_name || '影视';
-          
-          let titleSuffix = '';
-          const isMovie = type === '电影' || episodes.length <= 1;
-
-          if (isMovie) {
-              const epTitle = episodes[currentEpisodeIndex]?.title || 'HD';
-              const cleanEpTitle = epTitle.replace(/第|集/g, '').replace(/^0+/, ''); 
-              titleSuffix = ` ${isNaN(Number(cleanEpTitle)) ? cleanEpTitle : 'HD'}`; 
-          } else {
-              const epTitle = episodes[currentEpisodeIndex]?.title;
-              if (epTitle) {
-                  const raw = epTitle.replace(/第|集/g, '').replace(/^0+/, '');
-                  const display = isNaN(Number(raw)) ? raw : `第${raw}集`;
-                  titleSuffix = ` ${display}`;
-              }
-          }
-
-          updateSEO(
-              `《${currentMovie.vod_name}》${titleSuffix}在线观看_全集高清播放_${type}_CineStream AI`,
-              `CineStream AI为您提供《${currentMovie.vod_name}》免费高清在线观看，${currentMovie.vod_name}剧情介绍：${rawContent}...`,
-              `${currentMovie.vod_name},${currentMovie.vod_name}在线观看,${currentMovie.vod_name}全集,${actors},${director},${type},CineStream AI`,
-              currentMovie.vod_pic
-          );
-      } else if (path.startsWith('/sousuo')) {
-           const title = searchQuery ? `${searchQuery}-搜索结果-CineStream AI` : '搜索中心-CineStream AI';
-           updateSEO(
-              title,
-              'CineStream AI全网搜索，找到你想看的每一部影视作品。',
-              '搜索,视频搜索,影视搜索,CineStream AI'
-           );
-      }
-  }, [location.pathname, currentMovie, searchQuery, currentEpisodeIndex, episodes]);
-
-  // Load Watch History on Mount
   useEffect(() => {
       setWatchHistory(getHistory());
   }, []);
 
-  // Save episode progress to localStorage AND History list whenever it changes
   useEffect(() => {
       if (currentMovie && currentEpisodeIndex >= 0) {
           localStorage.setItem(`cine_last_episode_${currentMovie.vod_id}`, String(currentEpisodeIndex));
@@ -643,7 +495,6 @@ const App: React.FC = () => {
       }
   }, [currentEpisodeIndex, currentMovie]);
 
-  // Update current page when episode index changes (auto-switch tab)
   useEffect(() => {
     if (currentEpisodeIndex >= 0) {
       const page = Math.floor(currentEpisodeIndex / EPISODES_PER_PAGE);
@@ -668,7 +519,6 @@ const App: React.FC = () => {
       fetchInitial();
   }, [fetchInitial]);
 
-  // Resolve Douban ID to CMS Content with Enhanced Matching
   const handleResolveDoubanMovie = async (doubanId: string, name?: string, year?: string) => {
         setLoading(true);
         setCurrentMovie(null); 
@@ -691,7 +541,6 @@ const App: React.FC = () => {
                  return;
             }
 
-            // Enhanced: Remove "Season N" type info for broad search, but keep it for logic
             const cleanName = searchName
                 .replace(/[（\(]\d{4}[）\)]/g, '')
                 .replace(/第.+?季|Season\s*\d+|S\d+/gi, '')
@@ -701,7 +550,6 @@ const App: React.FC = () => {
             const queries = [searchName, cleanName];
             let foundVideo: VodItem | null = null;
 
-            // Aggressive Normalization: Remove ALL spaces, punctuation, special chars, and lowercase.
             const normalize = (str: string) => str.replace(/[\s\.\-_:：，,]+/g, '').toLowerCase();
             const targetFingerprint = normalize(searchName);
             const cleanFingerprint = normalize(cleanName);
@@ -712,15 +560,12 @@ const App: React.FC = () => {
                 if (res.list && res.list.length > 0) {
                     const candidates = res.list as VodItem[];
                     
-                    // 1. Exact Fingerprint Match (High Priority)
                     let match = candidates.find(v => normalize(v.vod_name) === targetFingerprint);
                     
-                    // 2. Exact Fingerprint Match against Clean Name
                     if (!match) {
                         match = candidates.find(v => normalize(v.vod_name) === cleanFingerprint);
                     }
 
-                    // 3. Year Match + Fuzzy Fingerprint (High Priority)
                     if (!match && year) {
                         match = candidates.find(v => {
                             const vFinger = normalize(v.vod_name);
@@ -728,7 +573,6 @@ const App: React.FC = () => {
                         });
                     }
                     
-                    // 4. Fuzzy Match (Contains clean fingerprint)
                     if (!match) {
                          const validMatches = candidates.filter(v => normalize(v.vod_name).includes(cleanFingerprint));
                          if (validMatches.length > 0) {
@@ -765,7 +609,6 @@ const App: React.FC = () => {
         }
   }
 
-  // --- CONSOLIDATED ROUTING LOGIC ---
   useEffect(() => {
       const pathParts = location.pathname.split('/');
       const path = pathParts[1] || '';
@@ -1062,7 +905,6 @@ const App: React.FC = () => {
                       </button>
                       
                       <div className="flex flex-col lg:flex-row gap-6 items-start h-auto relative transition-all duration-300">
-                          {/* Video Player Container */}
                           <div className={`flex-1 w-full bg-black rounded-xl overflow-hidden border border-white/5 shadow-2xl relative group transition-all duration-300 z-10 ${!showSidePanel ? 'lg:h-[650px]' : 'lg:h-[500px]'}`}>
                               <Suspense fallback={
                                   <div className="w-full h-full bg-black flex items-center justify-center">
@@ -1088,11 +930,8 @@ const App: React.FC = () => {
                               )}
                           </div>
 
-                          {/* Side Panel */}
                           {showSidePanel && (
                               <div className="w-full lg:w-[320px] flex flex-col gap-2 flex-shrink-0 animate-fade-in relative z-0">
-                                  
-                                  {/* Hide Button Container */}
                                   <div className="flex justify-end absolute -top-10 right-0 z-20">
                                       <button 
                                         onClick={() => setShowSidePanel(false)}
@@ -1104,7 +943,6 @@ const App: React.FC = () => {
                                   </div>
 
                                   <div className="bg-[#121620] border border-white/5 rounded-xl overflow-hidden shadow-xl flex flex-col h-[500px]">
-                                      {/* Tabs */}
                                       <div className="flex border-b border-white/5">
                                           <button 
                                               onClick={() => setSidePanelTab('episodes')}
@@ -1122,7 +960,6 @@ const App: React.FC = () => {
                                           </button>
                                       </div>
 
-                                      {/* Content Area */}
                                       <div className="flex-1 overflow-y-auto custom-scrollbar p-3 relative bg-black/20">
                                           {sidePanelTab === 'episodes' ? (
                                               <>
@@ -1139,7 +976,6 @@ const App: React.FC = () => {
                                                       </button>
                                                   </div>
                                                   
-                                                  {/* Pagination Tabs */}
                                                   {totalEpisodePages > 1 && (
                                                       <div className="flex flex-wrap gap-2 mb-3">
                                                           {Array.from({ length: totalEpisodePages }).map((_, idx) => (
@@ -1160,15 +996,7 @@ const App: React.FC = () => {
 
                                                   <div className="grid grid-cols-4 gap-2">
                                                       {displayEpisodes.map((ep) => {
-                                                          const originalIndex = isReverseOrder 
-                                                              ? (episodes.length - 1) - ep.index 
-                                                              : ep.index;
-                                                            
                                                           let displayName = ep.title;
-                                                          if (displayName.match(/^\d+$/)) {
-                                                              displayName = displayName;
-                                                          }
-
                                                           return (
                                                               <button
                                                                   key={ep.index}
@@ -1266,7 +1094,6 @@ const App: React.FC = () => {
 
               {activeTab === 'search' && !currentMovie && (
                   <div className="animate-fade-in max-w-5xl mx-auto">
-                      {/* Search Input */}
                       <div className="flex gap-2 md:gap-4 mb-8">
                           <div className="relative flex-1 group">
                               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -1312,7 +1139,6 @@ const App: React.FC = () => {
                                                       </div>
                                                   </div>
                                                   
-                                                  {/* Special Overlay for Celebrity Items */}
                                                   {item.type_name === 'celebrity' && (
                                                       <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                                                           <button className="bg-brand text-black font-bold px-4 py-2 rounded-full transform scale-90 group-hover:scale-100 transition-transform">

@@ -17,7 +17,6 @@ interface VideoPlayerProps {
   className?: string;
 }
 
-// Icons for settings
 const ICONS = {
     skipStart: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff" width="22" height="22"><path d="M5 4h2v16H5V4zm4 1v14l11-7L9 5z"/></svg>',
     skipEnd: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff" width="22" height="22"><path d="M5 5l11 7-11 7V5zm12-1h2v16h-2V4z"/></svg>',
@@ -25,405 +24,82 @@ const ICONS = {
     next: '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>',
 };
 
-const SKIP_OPTIONS = [
-    { html: '关闭', value: 0 },
-    { html: '30秒', value: 30 },
-    { html: '45秒', value: 45 },
-    { html: '60秒', value: 60 },
-    { html: '90秒', value: 90 },
-    { html: '120秒', value: 120 },
-    { html: '150秒', value: 150 },
-    { html: '180秒', value: 180 },
-];
-
-const AD_PATTERNS = [
-    'googleads', 'doubleclick', '/ad/', 'ad_', '.m3u8_ad', 
-    'advertisement', 'ignore=', 'guanggao', 'hecheng', 
-    '666666', '555555', '999999', 'hl_ad', 'm3u8_ad', 
-    '/tp/ad', 'cs.html', '111111', '222222', '333333', 
-    '444444', '777777', '888888', '000000', 'yibo', 'daohang',
-    'aybc', 'qq2', 'hls_ad', 'm3u8_a', '989898', '777999', 
-    'ts_ad', 'ad.ts', 'ad_0', 'ad_1', 'ad_2', 'xiaoshuo',
-    'wangzhuan', 'gif', '.mp4'
-];
-
-function filterAdsFromM3U8(m3u8Content: string): string {
-    if (!m3u8Content) return '';
-    const lines = m3u8Content.split('\n');
-    const filteredLines: string[] = [];
-    let inAdBlock = false;
-    
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (line.includes('EXT-X-CUE-OUT') || line.includes('SCTE35') || (line.includes('DATERANGE') && line.includes('SCTE35'))) { 
-            inAdBlock = true; 
-            continue; 
-        }
-        if (line.includes('EXT-X-CUE-IN')) { 
-            inAdBlock = false; 
-            continue; 
-        }
-        if (line.includes('EXT-X-DISCONTINUITY')) {
-            continue;
-        }
-        if (inAdBlock) continue;
-        if (line && !line.startsWith('#')) {
-             const lowerUrl = line.toLowerCase();
-             if (AD_PATTERNS.some(p => lowerUrl.includes(p))) {
-                 if (filteredLines.length > 0 && filteredLines[filteredLines.length - 1].includes('#EXTINF')) {
-                     filteredLines.pop();
-                 }
-                 continue;
-             }
-        }
-        filteredLines.push(lines[i]);
-    }
-    return filteredLines.join('\n');
-}
-
-// ================= API Configuration =================
 const DANMAKU_API_BASE = 'https://dm1.laidd.de5.net/5573108';
-const API_MATCH = `${DANMAKU_API_BASE}/api/v2/match`;
-const API_SEARCH_EPISODES = `${DANMAKU_API_BASE}/api/v2/search/episodes`;
-const API_COMMENT = `${DANMAKU_API_BASE}/api/v2/comment`;
-
-// GLOBAL CUSTOM PROXY
 const GLOBAL_PROXY = 'https://daili.laidd.de5.net/?url=';
 
-// Memory Cache to speed up switching episodes in same series
-const DANMAKU_CACHE = new Map<string, number>(); // title_epIndex -> episodeId
-
-// Robust Fetch: Tries direct first, then proxy
-const robustFetch = async (url: string, forceProxy = false) => {
+const robustFetch = async (url: string) => {
     const headers = { 'Accept': 'application/json' };
-    
-    // 1. Try Direct Fetch (Fastest) if not forced to proxy
-    if (!forceProxy) {
-        try {
-            const controller = new AbortController();
-            const id = setTimeout(() => controller.abort(), 3000); // 3s fast timeout
-            const response = await fetch(url, { headers, signal: controller.signal });
-            clearTimeout(id);
-            if (response.ok) return response;
-        } catch (e) {
-            // Direct failed, fall through to proxy
-        }
-    }
-
-    // 2. Fallback to Proxy
     const proxyUrl = `${GLOBAL_PROXY}${encodeURIComponent(url)}`;
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 15000);
     try {
-        const response = await fetch(proxyUrl, { headers, signal: controller.signal });
-        clearTimeout(id);
-        if (!response.ok) throw new Error(`Proxy Fetch failed: ${response.status}`);
-        return response;
-    } catch (error) {
-        clearTimeout(id);
-        throw error;
-    }
+        const response = await fetch(proxyUrl, { headers });
+        if (response.ok) return response;
+    } catch (e) {}
+    return null;
 };
 
-const transformDanmaku = (comments: any[]) => {
-    if (!Array.isArray(comments)) return [];
-    
-    return comments.map((item: any) => {
-        if (!item || typeof item !== 'object') return null;
-
-        const pStr = String(item.p || '');
-        const parts = pStr.split(',');
-        
-        const time = parseFloat(parts[0]);
-        if (isNaN(time)) return null;
-
-        const modeId = parseInt(parts[1]) || 1;
-        let mode = 0; // 0: scroll, 1: top, 2: bottom
-        if (modeId === 4) mode = 2; // Dandan Bottom -> Artplayer Bottom
-        else if (modeId === 5) mode = 1; // Dandan Top -> Artplayer Top
-        
-        const colorInt = parseInt(parts[2]);
-        let color = '#FFFFFF';
-        if (!isNaN(colorInt)) {
-            try {
-                const hex = (colorInt & 0xFFFFFF).toString(16).toUpperCase().padStart(6, '0');
-                color = `#${hex}`;
-            } catch (e) { /* fallback to white */ }
-        }
-
-        const text = String(item.m || item.message || item.text || '');
-        if (!text) return null;
-        
-        return {
-            text: text,
-            time: time,
-            mode: mode as any, 
-            color: color,
-            border: false, 
-            style: {
-                textShadow: 'rgb(0, 0, 0) 1px 0px 1px, rgb(0, 0, 0) 0px 1px 1px, rgb(0, 0, 0) 0px -1px 1px, rgb(0, 0, 0) -1px 0px 1px',
-                fontFamily: 'SimHei, "Microsoft YaHei", sans-serif',
-                fontWeight: 'bold',
-            },
-        };
-    }).filter((item): item is NonNullable<typeof item> => item !== null);
-};
-
-const fetchComments = async (episodeId: string | number) => {
-    try {
-        // withRelated=true matches other episodes in the same group/season logic sometimes, ch_convert=1 converts Trad to Simp Chinese
-        const commentUrl = `${API_COMMENT}/${episodeId}?withRelated=true&ch_convert=1`;
-        const res = await robustFetch(commentUrl, false);
-        const data = await res.json();
-        const rawComments = data.comments || data;
-        return transformDanmaku(rawComments);
-    } catch (e) {
-        console.warn('Failed to fetch comments', e);
-        return [];
-    }
-};
-
-// Smarter Title Cleaning: Preserves Season/Part info, removes Technical tags
-const getSearchTerm = (title: string): string => {
-    return title
-        .replace(/[\(\[\{【](?!Part|Vol|Ep|Season|第).+?[\)\]\}】]/gi, '') // Remove content inside brackets unless it looks like Season info
-        .replace(/(?:4k|1080p|720p|hd|bd|web-dl|hdtv|dvdrip|x264|x265|aac|dd5\.1|国语|粤语|中字|双语|完整版|未删减|电视剧|动漫|综艺|movie|tv|\d{4}年|\d{4})/gi, '')
-        .trim()
-        .replace(/\s+/g, ' '); // Normalize spaces
-};
-
-const fetchDanmaku = async (title: string, episodeIndex: number, videoUrl: string) => {
+const fetchDanmaku = async (title: string, episodeIndex: number) => {
     if (!title) return [];
-    
-    // 0. Check Cache
-    const cacheKey = `${title}_${episodeIndex}`;
-    if (DANMAKU_CACHE.has(cacheKey)) {
-        console.log('Danmaku Cache Hit');
-        return await fetchComments(DANMAKU_CACHE.get(cacheKey)!);
-    }
-
-    const cleanTitle = getSearchTerm(title);
-    // Create a compact version of the title (no spaces) for robust matching (e.g. "Title 2" vs "Title2")
-    const titleNoSpaces = cleanTitle.replace(/\s+/g, '');
-    
     const episodeNum = episodeIndex + 1;
-    const epStr = episodeNum < 10 ? `0${episodeNum}` : `${episodeNum}`;
-    
-    console.log(`Searching Danmaku for: [${cleanTitle}] Ep: ${episodeNum}`);
-
-    let matchedEpisodeId: number | null = null;
-
-    // STRATEGY 1: Match API (Smart Virtual Filename) - Fastest & Most Accurate
-    // We try both spaced and non-spaced versions to handle different conventions
-    const virtualFiles = [
-        `[Unknown] ${cleanTitle} - ${epStr}.mp4`,
-        `[Unknown] ${titleNoSpaces} - ${epStr}.mp4`, // Handle compact naming
-        `${cleanTitle} - ${epStr}.mp4`,
-        `${titleNoSpaces} - ${epStr}.mp4`,
-        `${cleanTitle} ${epStr}.mp4`,
-        `${cleanTitle} 第${epStr}集.mp4`,
-        `${titleNoSpaces} 第${epStr}集.mp4`,
-        `${cleanTitle} S01E${epStr}.mp4`
-    ];
-
-    if (cleanTitle.includes(' ')) {
-        virtualFiles.push(`[Unknown] ${cleanTitle.replace(/\s+/g, '.')} - ${epStr}.mp4`);
-    }
-
-    for (const fileName of virtualFiles) {
-        try {
-            // hash=0&length=0 allows matching purely by filename
-            const matchUrl = `${API_MATCH}?fileName=${encodeURIComponent(fileName)}&hash=0&length=0`;
-            const matchRes = await robustFetch(matchUrl, false);
-            const matchData = await matchRes.json();
-            
-            if (matchData.isMatched && matchData.matches && matchData.matches.length > 0) {
-                matchedEpisodeId = matchData.matches[0].episodeId;
-                console.log(`Danmaku Matched via filename: ${fileName} -> ID: ${matchedEpisodeId}`);
-                break;
-            }
-        } catch (e) { /* continue */ }
-    }
-
-    // STRATEGY 2: Smart Search Fallback (Fuzzy Title + Episode) - Handles Weird Filenames
-    if (!matchedEpisodeId) {
-        try {
-            console.log('Match failed, trying Smart Search...');
-            // Try searching with the original spaced title first
-            let searchUrl = `${API_SEARCH_EPISODES}?anime=${encodeURIComponent(cleanTitle)}&episode=${episodeNum}`;
-            let searchRes = await robustFetch(searchUrl, false);
-            let searchData = await searchRes.json();
-
-            // If no result, try the compact title
-            if ((!searchData.animes || searchData.animes.length === 0) && titleNoSpaces !== cleanTitle) {
-                 searchUrl = `${API_SEARCH_EPISODES}?anime=${encodeURIComponent(titleNoSpaces)}&episode=${episodeNum}`;
-                 searchRes = await robustFetch(searchUrl, false);
-                 searchData = await searchRes.json();
-            }
-
-            if (searchData.animes && searchData.animes.length > 0) {
-                // Heuristic: The first anime result is usually the most relevant for a specific query
-                const bestAnime = searchData.animes[0];
-                
-                // If API returns episode list, pick the first one (since we filtered by episode param)
-                if (bestAnime.episodes && bestAnime.episodes.length > 0) {
-                    matchedEpisodeId = bestAnime.episodes[0].episodeId;
-                    console.log(`Danmaku Matched via Search: ${bestAnime.animeTitle} Ep:${bestAnime.episodes[0].episodeTitle}`);
+    try {
+        const searchUrl = `${DANMAKU_API_BASE}/api/v2/search/episodes?anime=${encodeURIComponent(title)}&episode=${episodeNum}`;
+        const res = await robustFetch(searchUrl);
+        if (res) {
+            const data = await res.json();
+            if (data.animes?.[0]?.episodes?.[0]?.episodeId) {
+                const commentRes = await robustFetch(`${DANMAKU_API_BASE}/api/v2/comment/${data.animes[0].episodes[0].episodeId}?withRelated=true&ch_convert=1`);
+                if (commentRes) {
+                    const comments = await commentRes.json();
+                    return (comments.comments || comments).map((c:any) => ({
+                        text: c.m, time: parseFloat(c.p.split(',')[0]), color: '#FFFFFF', border: false, mode: 0
+                    }));
                 }
             }
-        } catch (e) {
-            console.warn('Smart Search failed', e);
         }
-    }
-
-    if (matchedEpisodeId) {
-        DANMAKU_CACHE.set(cacheKey, matchedEpisodeId);
-        return await fetchComments(matchedEpisodeId);
-    }
-    
+    } catch(e) {}
     return [];
 };
 
-const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s < 10 ? '0' + s : s}`;
-};
-
 const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
-  const { url, poster, autoplay = true, onEnded, onNext, title, episodeIndex = 0, doubanId, vodId, className } = props;
+  const { url, poster, autoplay = true, onEnded, onNext, title, episodeIndex = 0, vodId, className } = props;
   const artRef = useRef<Artplayer | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  
-  // Use a ref to store latest props for use inside Artplayer callbacks
-  // This allows us to avoid re-initializing the player when simple props change (like onNext reference)
   const propsRef = useRef(props);
-  useEffect(() => {
-      propsRef.current = props;
-  }, [props]);
+  useEffect(() => { propsRef.current = props; }, [props]);
 
-  useImperativeHandle(ref, () => ({
-      getInstance: () => artRef.current
-  }));
+  useImperativeHandle(ref, () => ({ getInstance: () => artRef.current }));
 
-  // === Custom Auto Mini (PiP) Logic for Mobile Optimization ===
-  useEffect(() => {
-      if (!containerRef.current) return;
-
-      const observer = new IntersectionObserver((entries) => {
-          const entry = entries[0];
-          const art = artRef.current;
-          if (!art) return;
-
-          // If container is visible (at least 30%)
-          if (entry.isIntersecting) {
-              // Automatically return to player if in mini mode
-              if (art.mini) {
-                  art.mini = false;
-              }
-          } 
-          // If container is hidden (scrolled away)
-          else {
-              // Automatically go to mini mode if playing and not already in another mode
-              if (art.playing && !art.pip && !art.fullscreen && !art.mini) {
-                  art.mini = true;
-              }
-          }
-      }, {
-          threshold: 0.3, // Trigger when 30% of the player is visible/hidden
-      });
-
-      observer.observe(containerRef.current);
-
-      return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-      const observer = new ResizeObserver(() => {
-          if (artRef.current && typeof (artRef.current as any).resize === 'function') {
-              (artRef.current as any).resize();
-          }
-      });
-      if (containerRef.current) {
-          observer.observe(containerRef.current);
-      }
-      return () => observer.disconnect();
-  }, []);
-
-  // Initialization Effect (Run Once)
   useEffect(() => {
       if (!containerRef.current) return;
       
-      const DEFAULT_SKIP_HEAD = 90;
-      const DEFAULT_SKIP_TAIL = 120;
-      let hasSkippedHead = false;
-      let isSkippingTail = false;
-      const autoNext = true; 
-
-      let skipHead = parseInt(localStorage.getItem('art_skip_head') || String(DEFAULT_SKIP_HEAD));
-      let skipTail = parseInt(localStorage.getItem('art_skip_tail') || String(DEFAULT_SKIP_TAIL));
-      let danmakuEnabled = true;
-
       const art = new Artplayer({
           container: containerRef.current,
-          url: propsRef.current.url, // Use initial url
+          url: propsRef.current.url,
           poster: propsRef.current.poster,
           autoplay: propsRef.current.autoplay,
           volume: 0.7,
           isLive: false,
-          muted: false,
-          autoMini: false, // DISABLED BUILT-IN: Use custom IntersectionObserver
-          screenshot: false, 
-          setting: true,
+          autoMini: false,
           pip: true,
           fullscreen: true,
           fullscreenWeb: true,
-          
-          flip: false,
-          playbackRate: true,
-          aspectRatio: false,
-
-          airplay: true,
           theme: '#22c55e',
           lang: 'zh-cn',
-          lock: true,
-          fastForward: true,
-          autoOrientation: true,
-          moreVideoAttr: {
-              crossOrigin: 'anonymous',
-              playsInline: true,
-              'webkit-playsinline': true,
-          } as any,
+          moreVideoAttr: { crossOrigin: 'anonymous', playsInline: true, 'webkit-playsinline': true } as any,
           plugins: [
               artplayerPluginDanmuku({
                   danmuku: async () => {
-                      try {
-                          // Use propsRef to get fresh values for danmaku query
-                          const { title, episodeIndex, url } = propsRef.current;
-                          const data = await fetchDanmaku(title || '', episodeIndex || 0, url);
-                          if (artRef.current) {
-                               if (data.length > 0) {
-                                   artRef.current.notice.show = `弹幕加载成功: ${data.length}条`;
-                               }
-                          }
-                          return data;
-                      } catch (e) {
-                          console.error("Danmaku error", e);
-                          return [];
-                      }
+                      return await fetchDanmaku(propsRef.current.title || '', propsRef.current.episodeIndex || 0);
                   },
                   speed: 10,
-                  opacity: 1, 
+                  opacity: 1,
                   fontSize: 25,
                   color: '#FFFFFF',
                   mode: 0,
                   margin: [10, '75%'],
                   antiOverlap: true,
                   synchronousPlayback: true,
-                  visible: danmakuEnabled, 
-                  emitter: false,
               }),
-          ].filter(Boolean),
+          ],
           controls: [
              {
                 name: 'next-episode',
@@ -432,200 +108,19 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                 html: ICONS.next,
                 tooltip: '下一集',
                 style: { cursor: 'pointer', display: 'flex', alignItems: 'center', marginLeft: '2px' },
-                click: function (item: any) { 
-                    if (propsRef.current.onNext) propsRef.current.onNext(); 
-                },
-             },
-             {
-                name: 'p2p-info',
-                position: 'right',
-                index: 20,
-                html: '<div style="display:flex;align-items:center;gap:4px;"><span style="width:6px;height:6px;border-radius:50%;background:#94a3b8;box-shadow:0 0 4px #94a3b8;"></span><span style="font-size:11px;opacity:0.8;">P2P加速中</span></div>',
-                tooltip: '智能P2P加速正在初始化...',
-                style: { marginRight: '10px', cursor: 'help', display: 'flex', alignItems: 'center' }
+                click: function () { if (propsRef.current.onNext) propsRef.current.onNext(); },
              }
-          ],
-          settings: [
-              {
-                  html: '弹幕状态',
-                  icon: ICONS.danmaku,
-                  tooltip: danmakuEnabled ? '开启' : '关闭',
-                  switch: danmakuEnabled,
-                  onSwitch: function (item: any) {
-                      const nextState = !item.switch;
-                      item.tooltip = nextState ? '开启' : '关闭';
-                      
-                      const plugin = (this.plugins as any).artplayerPluginDanmuku;
-                      if (plugin) {
-                          if (nextState) plugin.show();
-                          else plugin.hide();
-                      }
-                      
-                      if (this.template.$danmuku) {
-                          this.template.$danmuku.style.display = nextState ? 'block' : 'none';
-                      }
-
-                      this.notice.show = nextState ? '弹幕已开启' : '弹幕已关闭';
-                      return nextState;
-                  },
-              },
-              {
-                  html: '跳过片头',
-                  width: 250,
-                  tooltip: skipHead > 0 ? skipHead+'秒' : '关闭',
-                  icon: ICONS.skipStart,
-                  selector: SKIP_OPTIONS.map(o => ({
-                      default: o.value === skipHead,
-                      html: o.html,
-                      url: o.value
-                  })),
-                  onSelect: function(item: any) {
-                      skipHead = item.url;
-                      localStorage.setItem('art_skip_head', String(skipHead));
-                      return item.html;
-                  }
-              },
-              {
-                  html: '跳过片尾',
-                  width: 250,
-                  tooltip: skipTail > 0 ? skipTail+'秒' : '关闭',
-                  icon: ICONS.skipEnd,
-                  selector: SKIP_OPTIONS.map(o => ({
-                      default: o.value === skipTail,
-                      html: o.html,
-                      url: o.value
-                  })),
-                  onSelect: function(item: any) {
-                      skipTail = item.url;
-                      localStorage.setItem('art_skip_tail', String(skipTail));
-                      return item.html;
-                  }
-              }
           ],
           customType: {
               m3u8: function (video: HTMLVideoElement, url: string, art: any) {
-                  // Ensure previous HLS instance is destroyed if this is a switchUrl call
-                  if (art.hls) {
-                      art.hls.destroy();
-                      art.hls = null;
-                  }
-
                   if (Hls.isSupported()) {
-                      class CustomLoader extends Hls.DefaultConfig.loader {
-                          constructor(config: any) { super(config); }
-                          load(context: any, config: any, callbacks: any) {
-                              if (context.type === 'manifest' || context.type === 'level') {
-                                  const onSuccess = callbacks.onSuccess;
-                                  callbacks.onSuccess = function (response: any, stats: any, ctx: any) {
-                                      if (response.data && typeof response.data === 'string') {
-                                          try { response.data = filterAdsFromM3U8(response.data); } catch (e) {}
-                                      }
-                                      return onSuccess(response, stats, ctx, null);
-                                  };
-                              }
-                              super.load(context, config, callbacks);
-                          }
-                      }
-
-                      const hls = new Hls({
-                          debug: false,
-                          enableWorker: true,
-                          // OPTIMIZED BUFFER CONFIG FOR P2P
-                          // Large buffers help P2P sharing (uploading) and stability
-                          maxBufferLength: 60, // 60s forward buffer
-                          maxMaxBufferLength: 300, // Up to 5 mins
-                          backBufferLength: 90, // Keep 90s of back buffer for seeding to others
-                          startLevel: -1,
-                          autoStartLoad: true,
-                          pLoader: CustomLoader as any,
-                      });
-
-                      // === P2P Engine Enhancement ===
+                      const hls = new Hls({ debug: false, enableWorker: true });
                       if (P2PEngine && (P2PEngine as any).isSupported()) {
-                          try {
-                            const engine = new (P2PEngine as any)(hls, {
-                                maxBufSize: 1024 * 1024 * 1024, // 1GB Cache
-                                p2pEnabled: true,
-                                trackerZone: 'hk', // Better for Asian connectivity
-                                logLevel: 'warn',
-                            });
-                            
-                            let p2pBytes = 0;
-                            let httpBytes = 0;
-                            let lastP2PBytes = 0;
-                            let lastHttpBytes = 0;
-                            let lastTs = Date.now();
-                            
-                            const updateP2PDisplay = () => {
-                                const el = art.controls['p2p-info'];
-                                if(el) {
-                                    // Calculate Ratio
-                                    const total = p2pBytes + httpBytes;
-                                    const ratio = total > 0 ? Math.round((p2pBytes / total) * 100) : 0;
-                                    const peers = engine.peers ? engine.peers.length : 0;
-                                    
-                                    // Calculate Speed
-                                    const now = Date.now();
-                                    const deltaMs = now - lastTs;
-                                    
-                                    let speedText = '';
-                                    if (deltaMs > 500) { // Update speed every ~500ms+
-                                        const deltaBytes = (p2pBytes + httpBytes) - (lastP2PBytes + lastHttpBytes);
-                                        const speedBps = (deltaBytes * 1000) / deltaMs;
-                                        const speedKBps = speedBps / 1024;
-                                        
-                                        if (speedKBps > 1024) {
-                                            speedText = `${(speedKBps / 1024).toFixed(1)} MB/s`;
-                                        } else {
-                                            speedText = `${Math.round(speedKBps)} KB/s`;
-                                        }
-                                        
-                                        lastP2PBytes = p2pBytes;
-                                        lastHttpBytes = httpBytes;
-                                        lastTs = now;
-                                    }
-
-                                    // Dynamic Color Status
-                                    let color = '#94a3b8'; // Grey (Idle)
-                                    if (peers > 0) {
-                                        color = ratio > 60 ? '#22c55e' : '#3b82f6'; // Green (P2P dominant) or Blue (Hybrid)
-                                    }
-                                    
-                                    // Compact Display
-                                    el.innerHTML = `
-                                        <div style="display:flex;align-items:center;gap:6px;font-family:monospace;background:rgba(255,255,255,0.05);padding:2px 6px;border-radius:4px;">
-                                            <span style="width:6px;height:6px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color};"></span>
-                                            <div style="display:flex;flex-direction:column;line-height:1;align-items:flex-start;">
-                                                <span style="font-size:10px;color:#e2e8f0;font-weight:bold;">${speedText || '0 KB/s'}</span>
-                                                <span style="font-size:9px;color:${color};opacity:0.9;">P2P ${ratio}% • ${peers}节点</span>
-                                            </div>
-                                        </div>
-                                    `;
-                                    
-                                    // Detailed Tooltip
-                                    el.title = `累计节省流量 (P2P): ${(p2pBytes/1024/1024).toFixed(1)}MB\n累计消耗流量 (HTTP): ${(httpBytes/1024/1024).toFixed(1)}MB\n当前连接节点: ${peers}个`;
-                                }
-                            };
-
-                            // Update stats on every 'stats' event (usually implies segment download)
-                            engine.on('stats', (stats: any) => {
-                                p2pBytes = stats.totalP2PDownloaded;
-                                httpBytes = stats.totalHTTPDownloaded;
-                                updateP2PDisplay();
-                            });
-                            
-                            engine.on('peers', () => {
-                                updateP2PDisplay();
-                            });
-                            
-                            // Initialize display immediately
-                            updateP2PDisplay();
-
-                          } catch (e) {
-                              console.warn('P2P Init Error', e);
-                          }
+                          new (P2PEngine as any)(hls, {
+                              maxBufSize: 1024 * 1024 * 1024,
+                              p2pEnabled: true,
+                          });
                       }
-
                       hls.loadSource(url);
                       hls.attachMedia(video);
                       art.hls = hls;
@@ -638,129 +133,29 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
               }
           },
       });
-      
-      const restoreProgress = () => {
-          const { vodId, episodeIndex, url } = propsRef.current;
-          const key = (vodId && episodeIndex !== undefined) 
-            ? `cine_progress_${vodId}_${episodeIndex}` 
-            : `cine_progress_${url}`;
-            
-          const savedTimeStr = localStorage.getItem(key);
-          if (savedTimeStr) {
-              const savedTime = parseFloat(savedTimeStr);
-              if (!isNaN(savedTime) && savedTime > 5 && savedTime < art.duration - 5) {
-                  art.seek = savedTime;
-                  art.notice.show = `已恢复至 ${formatTime(savedTime)}`;
-              }
-          }
-      };
 
-      art.on('ready', restoreProgress);
-      art.on('restart', restoreProgress);
-
-      art.on('video:timeupdate', function() {
-          if (art.currentTime > 0) {
-              const { vodId, episodeIndex, url } = propsRef.current;
-              const key = (vodId && episodeIndex !== undefined) 
-                ? `cine_progress_${vodId}_${episodeIndex}` 
-                : `cine_progress_${url}`;
-              localStorage.setItem(key, String(art.currentTime));
-          }
-          
-          const currentSkipHead = parseInt(localStorage.getItem('art_skip_head') || String(DEFAULT_SKIP_HEAD));
-          const currentSkipTail = parseInt(localStorage.getItem('art_skip_tail') || String(DEFAULT_SKIP_TAIL));
-          
-          if (currentSkipHead > 0 && !hasSkippedHead && art.duration > 300) {
-             if (art.currentTime < currentSkipHead) {
-                art.notice.show = `已跳过片头`;
-                art.seek = currentSkipHead;
-                art.play();
-             }
-             hasSkippedHead = true;
-          }
-
-          if (currentSkipTail > 0 && !isSkippingTail && art.duration > 300) {
-              const rem = art.duration - art.currentTime;
-              if (rem > 0 && rem <= currentSkipTail) {
-                  isSkippingTail = true;
-                  if (autoNext && propsRef.current.onNext) {
-                      art.notice.show = '即将播放下一集';
-                      // Use a debounce or flag to prevent multiple triggers
-                      // But for simplicity, we rely on the parent to handle index change which will unmount or update prop
-                      // With switchUrl, we need to be careful not to loop.
-                      // propsRef.current.onNext() will trigger url change which triggers switchUrl.
-                      setTimeout(() => { 
-                          if (propsRef.current.onNext && isSkippingTail) propsRef.current.onNext(); 
-                      }, 1000); 
-                  }
-              }
-          }
-      });
-
-      art.on('seek', () => { isSkippingTail = false; });
-      art.on('restart', () => { isSkippingTail = false; hasSkippedHead = false; });
-      art.on('video:ended', () => {
-         const { vodId, episodeIndex, url } = propsRef.current;
-         const key = (vodId && episodeIndex !== undefined) ? `cine_progress_${vodId}_${episodeIndex}` : `cine_progress_${url}`;
-         localStorage.removeItem(key);
-         if (autoNext && propsRef.current.onNext) propsRef.current.onNext();
-      });
-
+      art.on('video:ended', () => { if (propsRef.current.onNext) propsRef.current.onNext(); });
       artRef.current = art;
 
       return () => {
           if (artRef.current) {
-              // Standard destroy
-              try {
-                  if (artRef.current.mini) artRef.current.mini = false;
-                  if (artRef.current.pip) artRef.current.pip = false;
-                  if (artRef.current.fullscreen) artRef.current.fullscreen = false;
-              } catch (e) { }
-              
-              if (artRef.current.destroy) {
-                  artRef.current.destroy(true); 
-                  artRef.current = null;
-              }
+              artRef.current.destroy(true);
+              artRef.current = null;
           }
       };
-  }, []); // Run once on mount
+  }, []); 
 
-  // Handle URL changes via switchUrl (Seamless Playback)
   useEffect(() => {
       const art = artRef.current;
       if (art && url && url !== art.url) {
           art.switchUrl(url).then(() => {
-              // Reload Danmaku with new props
-              if (art.plugins.artplayerPluginDanmuku && typeof art.plugins.artplayerPluginDanmuku.load === 'function') {
-                  art.plugins.artplayerPluginDanmuku.load();
-              }
-              art.notice.show = '';
+              if (art.plugins.artplayerPluginDanmuku) (art.plugins.artplayerPluginDanmuku as any).load();
           });
       }
   }, [url]);
 
-  // Handle Poster changes
-  useEffect(() => {
-      if (artRef.current && poster && poster !== artRef.current.poster) {
-          artRef.current.poster = poster;
-      }
-  }, [poster]);
-
   return (
       <div className={`w-full aspect-video lg:aspect-auto lg:h-full bg-black group relative z-0 ${className || ''}`}>
-          <style>{`
-            .art-danmuku-control, .art-control-danmuku { display: none !important; }
-            .art-layer-mini { 
-                z-index: 100 !important; 
-                touch-action: none !important; /* Fix for mobile dragging: prevents page scrolling */
-                pointer-events: auto !important;
-            }
-            @media (max-width: 768px) {
-                .art-controls .art-control { padding: 0 1px !important; }
-                .art-control-volume, .art-control-fullscreenWeb { display: none !important; }
-                .art-time { font-size: 11px !important; padding: 0 4px !important; }
-            }
-          `}</style>
           <div ref={containerRef} className="w-full h-full" />
       </div>
   );
