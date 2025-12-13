@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
-import { useNavigate, useLocation, useParams } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { getHomeSections, searchCms, getAggregatedSearch, getAggregatedMovieDetail, parseAllSources, enrichVodDetail, fetchDoubanData, fetchCategoryItems, getHistory, addToHistory, removeFromHistory, fetchPersonDetail, initVodSources } from './services/vodService';
 import MovieInfoCard from './components/MovieInfoCard';
 import ImageWithFallback from './components/ImageWithFallback';
@@ -443,15 +443,23 @@ const NavBar = ({ activeTab, onTabChange, onSettingsClick }: { activeTab: string
 const App: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [loading, setLoading] = useState(false);
+
+  // Lazy Init State to prevent flashing incorrect state on initial load
+  const [activeTab, setActiveTab] = useState(() => {
+    const path = location.pathname.split('/')[1] || '';
+    return URL_TO_TAB[path] || 'home';
+  });
+
+  const [loading, setLoading] = useState(() => {
+    // If we start on a play page, we are loading by default
+    return location.pathname.startsWith('/play');
+  });
+
   const [error, setError] = useState('');
   const [searchResults, setSearchResults] = useState<VodItem[]>([]);
   const [personProfile, setPersonProfile] = useState<PersonDetail | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [currentMovie, setCurrentMovie] = useState<VodDetail | null>(null);
-  
-  // Ref to hold the current VOD ID from the URL to prevent stale closures and unnecessary re-fetches
-  const currentVodIdRef = useRef<string | null>(null);
   
   const [availableSources, setAvailableSources] = useState<PlaySource[]>([]);
   const [currentSourceIndex, setCurrentSourceIndex] = useState(0);
@@ -464,16 +472,10 @@ const App: React.FC = () => {
   const EPISODES_PER_PAGE = 36;
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('home');
   const [showSettings, setShowSettings] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
   
-  // Track mount status to prevent updates on unmounted component
   const isMounted = useRef(true);
-
-  // Request ID for data fetching race conditions
-  const requestRef = useRef<number>(0);
-
   const [contextMenu, setContextMenu] = useState<{ visible: boolean, x: number, y: number, item: VodItem | null }>({ visible: false, x: 0, y: 0, item: null });
   
   const [homeSections, setHomeSections] = useState<{
@@ -493,52 +495,66 @@ const App: React.FC = () => {
       return () => { isMounted.current = false; };
   }, []);
 
-  // --- Routing Logic (Separated from Data Fetching) ---
+  // --- Derived State for Route Mode ---
+  // Strictly enforce Play Mode rendering logic based on URL
+  const isPlayPage = location.pathname.startsWith('/play');
+
+  // --- Routing Logic ---
   useEffect(() => {
-      // Use startsWith for stricter/safer check for play pages
-      const isPlayPage = location.pathname.startsWith('/play');
-      
       if (isPlayPage) {
           setActiveTab('play_page');
-          // DO NOT clear currentMovie here.
       } else {
           const pathParts = location.pathname.split('/');
           const path = pathParts[1] || '';
           const tab = URL_TO_TAB[path] || 'home';
           setActiveTab(tab);
-          
-          // Only clear movie if we are DEFINITELY not on the play page
-          // and we have a movie loaded.
-          if (currentMovie || currentVodIdRef.current) {
-               setCurrentMovie(null);
-               currentVodIdRef.current = null;
-          }
           setHasSearched(tab === 'search');
+          
+          // Clear movie if navigating away from play page
+          if (currentMovie) {
+               setCurrentMovie(null);
+          }
       }
-  }, [location.pathname]);
+  }, [location.pathname, isPlayPage]);
 
   // --- Data Fetching Logic (Triggered by ID change) ---
   useEffect(() => {
       const pathParts = location.pathname.split('/');
+      // Only run this effect if we are on the play page and have an ID
       if (pathParts[1] === 'play' && pathParts[2]) {
           const idParam = pathParts[2];
           const state = location.state as any;
           
-          // Check against the EXACT param in URL first to prevent reloading on same URL
-          if (currentVodIdRef.current === idParam) {
-              return; 
-          }
-          
-          // LOCK THE REF TO THE URL PARAM IMMEDIATELY
-          // This prevents infinite loops if resolving takes time or causes rerenders
-          currentVodIdRef.current = idParam; 
+          // Use an ignore flag for cleanup/race condition handling
+          let ignore = false;
 
-          if (idParam.startsWith('db_')) {
-              const doubanId = idParam.replace('db_', '');
-              handleResolveDoubanMovie(doubanId, state?.name, state?.year);
-          } else {
-              handleSelectMovie(idParam, state?.apiUrl, state?.doubanId);
-          }
+          const fetchData = async () => {
+              setLoading(true);
+              setError('');
+              setShowSidePanel(true);
+              setSidePanelTab('episodes');
+
+              try {
+                  if (idParam.startsWith('db_')) {
+                       const doubanId = idParam.replace('db_', '');
+                       await handleResolveDoubanMovie(doubanId, state?.name, state?.year, () => ignore);
+                  } else {
+                       await handleSelectMovie(idParam, state?.apiUrl, state?.doubanId, () => ignore);
+                  }
+              } catch (e) {
+                  console.error(e);
+                  if (!ignore) {
+                      setError('加载失败，请重试');
+                      setLoading(false);
+                  }
+              }
+          };
+
+          fetchData();
+
+          return () => {
+              ignore = true;
+          };
       }
   }, [location.pathname, location.state]);
 
@@ -624,6 +640,9 @@ const App: React.FC = () => {
   }, [currentEpisodeIndex]);
 
   const fetchInitial = useCallback(async () => {
+       // Only fetch initial home data if we are NOT starting on a play page
+       if (location.pathname.startsWith('/play')) return;
+
        setLoading(true);
        try {
            const sections = await getHomeSections();
@@ -636,18 +655,13 @@ const App: React.FC = () => {
            }
        } catch(e) { console.error(e); } 
        finally { if(isMounted.current) setLoading(false); }
-  }, []);
+  }, []); // Empty deps to run once
 
   useEffect(() => {
       fetchInitial();
   }, [fetchInitial]);
 
-  const handleResolveDoubanMovie = async (doubanId: string, name?: string, year?: string) => {
-        const requestId = Date.now();
-        requestRef.current = requestId;
-        setLoading(true);
-        setError('');
-        
+  const handleResolveDoubanMovie = async (doubanId: string, name: string | undefined, year: string | undefined, isIgnored: () => boolean) => {
         try {
             let searchName = name;
             if (!searchName) {
@@ -661,7 +675,7 @@ const App: React.FC = () => {
             }
 
             if (!searchName) throw new Error('Cannot resolve movie name');
-            if (requestRef.current !== requestId) return;
+            if (isIgnored()) return;
 
             // --- Multi-Strategy Search ---
             const cleanName = searchName
@@ -671,15 +685,12 @@ const App: React.FC = () => {
                 .trim();
             
             const nameParts = searchName.split(' ');
-            const firstPart = nameParts[0]; // Often the main Chinese title
+            const firstPart = nameParts[0]; 
             const nameWithoutSeason = searchName.replace(/第.+?季|Season\s*\d+/gi, '').trim();
 
-            // Prioritize strategies: Exact -> Clean -> First Part (Chinese) -> No Season
             const strategies = [searchName, cleanName, firstPart, nameWithoutSeason];
             const uniqueStrategies = [...new Set(strategies)].filter(s => s && s.length > 1);
 
-            // PARALLEL SEARCH for speed
-            // Use map to catch errors per request so one failure doesn't break Promise.all
             const searchPromises = uniqueStrategies.map(term => 
                 searchCms(term)
                     .then(res => ({ term, list: res.list || [] }))
@@ -687,13 +698,12 @@ const App: React.FC = () => {
             );
             
             const results = await Promise.all(searchPromises);
+            if (isIgnored()) return;
 
             let candidates: VodItem[] = [];
-            // Merge results respecting strategy order
             for (const term of uniqueStrategies) {
                 const result = results.find(r => r.term === term);
                 if (result && result.list.length > 0) {
-                    // Filter duplicates
                     const newItems = (result.list as VodItem[]).filter(newItem => !candidates.some(c => c.vod_id === newItem.vod_id));
                     candidates = [...candidates, ...newItems];
                 }
@@ -705,35 +715,30 @@ const App: React.FC = () => {
                  const targetFingerprint = normalize(searchName);
                  const cleanFingerprint = normalize(cleanName);
 
-                 // 1. Exact Match
                  foundVideo = candidates.find(v => normalize(v.vod_name) === targetFingerprint) || null;
-                 // 2. Clean Match
                  if (!foundVideo) foundVideo = candidates.find(v => normalize(v.vod_name) === cleanFingerprint) || null;
-                 // 3. Year Match
                  if (!foundVideo && year) {
                      foundVideo = candidates.find(v => normalize(v.vod_name).includes(cleanFingerprint) && v.vod_year === year) || null;
                  }
-                 // 4. Fuzzy Match / First Candidate (Aggressive fallback to ensure playback)
                  if (!foundVideo) {
                       foundVideo = candidates.find(v => normalize(v.vod_name).includes(cleanFingerprint)) || candidates[0];
                  }
             }
 
-            if (requestRef.current !== requestId) return;
+            if (isIgnored()) return;
 
             if (foundVideo) {
-                // DO NOT set loading to false here, handleSelectMovie will handle it
-                await handleSelectMovie(foundVideo.vod_id, foundVideo.api_url, doubanId);
+                await handleSelectMovie(foundVideo.vod_id, foundVideo.api_url, doubanId, isIgnored);
             } else {
                 setError(`未自动匹配到影片 "${searchName}" 的播放源`);
                 setSearchQuery(searchName);
                 setLoading(false);
-                setCurrentMovie(null); // Clear only on error
+                setCurrentMovie(null); 
             }
 
         } catch (e) {
             console.error(e);
-            if (requestRef.current === requestId) {
+            if (!isIgnored()) {
                 setError('资源解析失败，请检查网络');
                 setLoading(false);
                 setCurrentMovie(null);
@@ -741,19 +746,11 @@ const App: React.FC = () => {
         }
   }
 
-  const handleSelectMovie = async (id: number | string, apiUrl?: string, doubanId?: string) => {
-      const requestId = Date.now();
-      requestRef.current = requestId;
-      
-      setLoading(true);
-      setError('');
-      setShowSidePanel(true);
-      setSidePanelTab('episodes');
-      
+  const handleSelectMovie = async (id: number | string, apiUrl: string | undefined, doubanId: string | undefined, isIgnored: () => boolean) => {
       try {
           const result = await getAggregatedMovieDetail(id, apiUrl);
           
-          if (requestRef.current !== requestId) return;
+          if (isIgnored()) return;
 
           if (result && result.main) {
               const { main, alternatives } = result;
@@ -765,7 +762,7 @@ const App: React.FC = () => {
                   
                   if (doubanId) main.vod_douban_id = doubanId;
                   
-                  // Batch updates to avoid render thrashing
+                  // Update State Atomically
                   setAvailableSources(allSources);
                   setCurrentSourceIndex(initialIndex);
                   setEpisodes(allSources[initialIndex].episodes);
@@ -776,22 +773,16 @@ const App: React.FC = () => {
                   setCurrentEpisodeIndex(validIndex);
                   
                   window.scrollTo({ top: 0, behavior: 'smooth' });
-                  setLoading(false); // Stop loading immediately after basic data is ready
+                  setLoading(false); 
 
-                  // Lazy load rich data (score, actors, etc)
+                  // Lazy Enrichment
                   enrichVodDetail(main).then(updates => {
-                      // Safety check: is component mounted? is request still valid? are there updates?
-                      if (isMounted.current && requestRef.current === requestId && updates && Object.keys(updates).length > 0) {
+                      if (!isIgnored() && updates && Object.keys(updates).length > 0) {
                           setCurrentMovie(prev => {
-                              // CRITICAL: Ensure we are still looking at the same movie before updating
-                              // This prevents "disappearing" content if ID changed rapidly or state reset
                               if (!prev || String(prev.vod_id) !== String(main.vod_id)) return prev;
                               return { ...prev, ...updates };
                           });
                       }
-                  }).catch(err => {
-                      console.warn("Enrichment failed silently:", err);
-                      // Don't break UI, just keep existing movie data
                   });
               } else {
                  setError('未找到可播放的M3U8资源');
@@ -803,7 +794,7 @@ const App: React.FC = () => {
           }
       } catch (error) {
           console.error(error);
-          if (requestRef.current === requestId) {
+          if (!isIgnored()) {
               setError('影片加载失败');
               setLoading(false);
           }
@@ -959,9 +950,6 @@ const App: React.FC = () => {
       navigate(`/play/${item.vod_id}`);
   };
 
-  // Safe check for play page rendering
-  const isPlayPage = location.pathname.startsWith('/play');
-
   return (
       <div className="relative min-h-screen pb-20 overflow-x-hidden font-sans pt-24 lg:pt-16">
           <NavBar activeTab={activeTab} onTabChange={handleTabChange} onSettingsClick={() => setShowSettings(true)} />
@@ -988,192 +976,201 @@ const App: React.FC = () => {
 
           <div className="relative z-10 container mx-auto px-4 lg:px-6 py-6 max-w-[1400px]">
               
-              {/* Error Display for Playback Page */}
-              {error && isPlayPage && !loading && (
-                  <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
-                      <div className="bg-red-500/10 p-6 rounded-2xl border border-red-500/20 max-w-md">
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12 text-red-400 mx-auto mb-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
-                          <p className="text-gray-200 mb-6 font-medium">{error}</p>
-                          <div className="flex gap-4 justify-center">
-                              <button onClick={() => navigate(-1)} className="px-6 py-2 rounded-full border border-white/10 hover:bg-white/5 transition-colors text-sm text-gray-300">返回</button>
-                              <button onClick={() => window.location.reload()} className="px-6 py-2 rounded-full bg-brand text-black font-bold hover:bg-brand-hover transition-colors text-sm">刷新重试</button>
+              {/* --- PLAY PAGE RENDERING --- */}
+              {isPlayPage && (
+                  <>
+                      {/* Error State */}
+                      {error && !loading && (
+                          <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
+                              <div className="bg-red-500/10 p-6 rounded-2xl border border-red-500/20 max-w-md">
+                                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12 text-red-400 mx-auto mb-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+                                  <p className="text-gray-200 mb-6 font-medium">{error}</p>
+                                  <div className="flex gap-4 justify-center">
+                                      <button onClick={() => navigate(-1)} className="px-6 py-2 rounded-full border border-white/10 hover:bg-white/5 transition-colors text-sm text-gray-300">返回</button>
+                                      <button onClick={() => window.location.reload()} className="px-6 py-2 rounded-full bg-brand text-black font-bold hover:bg-brand-hover transition-colors text-sm">刷新重试</button>
+                                  </div>
+                              </div>
+                              <div className="mt-8 max-w-lg w-full">
+                                  <p className="text-gray-400 mb-4 text-sm">若长时间未播放，可尝试手动搜索：</p>
+                                   <div className="flex gap-2">
+                                      <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="输入影片名称..." className="flex-1 bg-[#121620] border border-white/10 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-brand/50" />
+                                      <button onClick={() => triggerSearch(searchQuery)} className="bg-brand text-black font-bold px-6 rounded-xl hover:bg-brand-hover transition-colors">搜索</button>
+                                   </div>
+                              </div>
                           </div>
-                      </div>
-                      <div className="mt-8 max-w-lg w-full">
-                          <p className="text-gray-400 mb-4 text-sm">若长时间未播放，可尝试手动搜索：</p>
-                           <div className="flex gap-2">
-                              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="输入影片名称..." className="flex-1 bg-[#121620] border border-white/10 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-brand/50" />
-                              <button onClick={() => triggerSearch(searchQuery)} className="bg-brand text-black font-bold px-6 rounded-xl hover:bg-brand-hover transition-colors">搜索</button>
-                           </div>
-                      </div>
-                  </div>
-              )}
+                      )}
 
-              {/* Fallback for Empty Play Page (No Error, No Loading, No Movie) */}
-              {isPlayPage && !currentMovie && !loading && !error && (
-                  <div className="flex flex-col items-center justify-center py-32 text-center animate-fade-in min-h-[50vh]">
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" className="w-20 h-20 text-gray-600 mb-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" /></svg>
-                      <h2 className="text-2xl font-bold text-white mb-2">未找到播放资源</h2>
-                      <p className="text-gray-400 mb-8 max-w-md">抱歉，自动匹配失败。您可以尝试使用不同的关键词搜索。</p>
-                      <div className="w-full max-w-md">
-                           <div className="flex gap-2">
-                              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="输入影片名称搜索..." className="flex-1 bg-[#121620] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand/50" />
-                              <button onClick={() => triggerSearch(searchQuery)} className="bg-brand text-black font-bold px-6 rounded-xl hover:bg-brand-hover transition-colors">搜索</button>
-                           </div>
-                      </div>
-                  </div>
-              )}
-
-              {/* Explicitly check isPlayPage OR currentMovie to prevent flash-disappear */}
-              {(isPlayPage && currentMovie) && (
-                  <section className="mb-12 animate-fade-in space-y-6 mt-4 min-h-[500px]">
-                      <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-gray-400 hover:text-white mb-4">
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" /></svg>
-                          返回
-                      </button>
-                      
-                      <div className="flex flex-col lg:flex-row gap-6 items-start h-auto relative transition-all duration-300">
-                          <div className={`flex-1 w-full min-h-[300px] bg-black rounded-xl overflow-hidden border border-white/5 shadow-2xl relative group transition-all duration-300 z-10 ${!showSidePanel ? 'lg:h-[650px]' : 'lg:h-[500px]'}`}>
-                              <Suspense fallback={<div className="w-full h-full bg-black flex items-center justify-center"><div className="animate-spin h-10 w-10 border-4 border-brand border-t-transparent rounded-full"></div></div>}>
-                                  <VideoPlayer 
-                                      key={currentMovie.vod_id} // Force remount if ID changes to prevent stale player state
-                                      url={currentEpUrl} 
-                                      poster={currentMovie.vod_pic}
-                                      title={currentMovie.vod_name}
-                                      episodeIndex={currentEpisodeIndex}
-                                      doubanId={currentMovie.vod_douban_id}
-                                      vodId={currentMovie.vod_id}
-                                      onEnded={handleEpisodeEnd}
-                                      onNext={handleNextEpisode}
-                                  />
-                              </Suspense>
-                              {!showSidePanel && (
-                                  <button onClick={() => setShowSidePanel(true)} className="absolute top-4 right-4 z-20 bg-black/60 backdrop-blur-md text-white/90 border border-white/10 rounded-full px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-brand/20 hover:border-brand/30 hover:text-brand transition-all shadow-lg opacity-0 group-hover:opacity-100">
-                                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
-                                      显示选集
-                                  </button>
-                              )}
+                      {/* Empty State - Only show if NO loading, NO error, NO movie */}
+                      {!currentMovie && !loading && !error && (
+                          <div className="flex flex-col items-center justify-center py-32 text-center animate-fade-in min-h-[50vh]">
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" className="w-20 h-20 text-gray-600 mb-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" /></svg>
+                              <h2 className="text-2xl font-bold text-white mb-2">未找到播放资源</h2>
+                              <p className="text-gray-400 mb-8 max-w-md">抱歉，自动匹配失败。您可以尝试使用不同的关键词搜索。</p>
+                              <div className="w-full max-w-md">
+                                   <div className="flex gap-2">
+                                      <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="输入影片名称搜索..." className="flex-1 bg-[#121620] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand/50" />
+                                      <button onClick={() => triggerSearch(searchQuery)} className="bg-brand text-black font-bold px-6 rounded-xl hover:bg-brand-hover transition-colors">搜索</button>
+                                   </div>
+                              </div>
                           </div>
+                      )}
 
-                          {showSidePanel && (
-                              <div className="w-full lg:w-[320px] flex flex-col gap-2 flex-shrink-0 animate-fade-in relative z-0">
-                                  <div className="flex justify-end absolute -top-10 right-0 z-20">
-                                      <button onClick={() => setShowSidePanel(false)} className="bg-[#121620] hover:bg-[#1a202e] text-gray-300 hover:text-white px-3 py-1.5 rounded-full text-xs flex items-center gap-1.5 border border-white/10 shadow-lg transition-all">
-                                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
-                                          隐藏
-                                      </button>
+                      {/* Success State */}
+                      {currentMovie && (
+                          <section className="mb-12 animate-fade-in space-y-6 mt-4 min-h-[500px]">
+                              <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-gray-400 hover:text-white mb-4">
+                                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" /></svg>
+                                  返回
+                              </button>
+                              
+                              <div className="flex flex-col lg:flex-row gap-6 items-start h-auto relative transition-all duration-300">
+                                  <div className={`flex-1 w-full min-h-[300px] bg-black rounded-xl overflow-hidden border border-white/5 shadow-2xl relative group transition-all duration-300 z-10 ${!showSidePanel ? 'lg:h-[650px]' : 'lg:h-[500px]'}`}>
+                                      <Suspense fallback={<div className="w-full h-full bg-black flex items-center justify-center"><div className="animate-spin h-10 w-10 border-4 border-brand border-t-transparent rounded-full"></div></div>}>
+                                          <VideoPlayer 
+                                              key={currentMovie.vod_id} // Force remount if ID changes
+                                              url={currentEpUrl} 
+                                              poster={currentMovie.vod_pic}
+                                              title={currentMovie.vod_name}
+                                              episodeIndex={currentEpisodeIndex}
+                                              doubanId={currentMovie.vod_douban_id}
+                                              vodId={currentMovie.vod_id}
+                                              onEnded={handleEpisodeEnd}
+                                              onNext={handleNextEpisode}
+                                          />
+                                      </Suspense>
+                                      {!showSidePanel && (
+                                          <button onClick={() => setShowSidePanel(true)} className="absolute top-4 right-4 z-20 bg-black/60 backdrop-blur-md text-white/90 border border-white/10 rounded-full px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-brand/20 hover:border-brand/30 hover:text-brand transition-all shadow-lg opacity-0 group-hover:opacity-100">
+                                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+                                              显示选集
+                                          </button>
+                                      )}
                                   </div>
 
-                                  <div className="bg-[#121620] border border-white/5 rounded-xl overflow-hidden shadow-xl flex flex-col h-[500px]">
-                                      <div className="flex border-b border-white/5">
-                                          <button onClick={() => setSidePanelTab('episodes')} className={`flex-1 py-3 text-sm font-bold transition-all relative ${sidePanelTab === 'episodes' ? 'text-white bg-white/5' : 'text-gray-500 hover:text-gray-300'}`}>
-                                              选集
-                                              {sidePanelTab === 'episodes' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand shadow-[0_0_10px_rgba(34,197,94,0.5)]"></div>}
-                                          </button>
-                                          <button onClick={() => setSidePanelTab('sources')} className={`flex-1 py-3 text-sm font-bold transition-all relative ${sidePanelTab === 'sources' ? 'text-white bg-white/5' : 'text-gray-500 hover:text-gray-300'}`}>
-                                              换源
-                                              {sidePanelTab === 'sources' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand shadow-[0_0_10px_rgba(34,197,94,0.5)]"></div>}
-                                          </button>
-                                      </div>
+                                  {showSidePanel && (
+                                      <div className="w-full lg:w-[320px] flex flex-col gap-2 flex-shrink-0 animate-fade-in relative z-0">
+                                          <div className="flex justify-end absolute -top-10 right-0 z-20">
+                                              <button onClick={() => setShowSidePanel(false)} className="bg-[#121620] hover:bg-[#1a202e] text-gray-300 hover:text-white px-3 py-1.5 rounded-full text-xs flex items-center gap-1.5 border border-white/10 shadow-lg transition-all">
+                                                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+                                                  隐藏
+                                              </button>
+                                          </div>
 
-                                      <div className="flex-1 overflow-y-auto custom-scrollbar p-3 relative bg-black/20">
-                                          {sidePanelTab === 'episodes' ? (
-                                              <>
-                                                  <div className="flex justify-between items-center mb-3 px-1">
-                                                      <span className="text-xs text-gray-400">{episodes.length} Episodes</span>
-                                                      <button onClick={() => setIsReverseOrder(!isReverseOrder)} className="p-1.5 rounded hover:bg-white/10 text-gray-400 hover:text-white transition-colors" title="Sort Order">
-                                                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5" /></svg>
-                                                      </button>
-                                                  </div>
-                                                  {totalEpisodePages > 1 && (
-                                                      <div className="flex flex-wrap gap-2 mb-3">
-                                                          {Array.from({ length: totalEpisodePages }).map((_, idx) => (
-                                                              <button key={idx} onClick={() => setCurrentEpisodePage(idx)} className={`px-2 py-1 text-[10px] rounded border ${currentEpisodePage === idx ? 'border-brand text-brand bg-brand/10' : 'border-white/10 text-gray-400 hover:border-white/30'}`}>{(idx * EPISODES_PER_PAGE) + 1}-{Math.min((idx + 1) * EPISODES_PER_PAGE, episodes.length)}</button>
+                                          <div className="bg-[#121620] border border-white/5 rounded-xl overflow-hidden shadow-xl flex flex-col h-[500px]">
+                                              <div className="flex border-b border-white/5">
+                                                  <button onClick={() => setSidePanelTab('episodes')} className={`flex-1 py-3 text-sm font-bold transition-all relative ${sidePanelTab === 'episodes' ? 'text-white bg-white/5' : 'text-gray-500 hover:text-gray-300'}`}>
+                                                      选集
+                                                      {sidePanelTab === 'episodes' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand shadow-[0_0_10px_rgba(34,197,94,0.5)]"></div>}
+                                                  </button>
+                                                  <button onClick={() => setSidePanelTab('sources')} className={`flex-1 py-3 text-sm font-bold transition-all relative ${sidePanelTab === 'sources' ? 'text-white bg-white/5' : 'text-gray-500 hover:text-gray-300'}`}>
+                                                      换源
+                                                      {sidePanelTab === 'sources' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand shadow-[0_0_10px_rgba(34,197,94,0.5)]"></div>}
+                                                  </button>
+                                              </div>
+
+                                              <div className="flex-1 overflow-y-auto custom-scrollbar p-3 relative bg-black/20">
+                                                  {sidePanelTab === 'episodes' ? (
+                                                      <>
+                                                          <div className="flex justify-between items-center mb-3 px-1">
+                                                              <span className="text-xs text-gray-400">{episodes.length} Episodes</span>
+                                                              <button onClick={() => setIsReverseOrder(!isReverseOrder)} className="p-1.5 rounded hover:bg-white/10 text-gray-400 hover:text-white transition-colors" title="Sort Order">
+                                                                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5" /></svg>
+                                                              </button>
+                                                          </div>
+                                                          {totalEpisodePages > 1 && (
+                                                              <div className="flex flex-wrap gap-2 mb-3">
+                                                                  {Array.from({ length: totalEpisodePages }).map((_, idx) => (
+                                                                      <button key={idx} onClick={() => setCurrentEpisodePage(idx)} className={`px-2 py-1 text-[10px] rounded border ${currentEpisodePage === idx ? 'border-brand text-brand bg-brand/10' : 'border-white/10 text-gray-400 hover:border-white/30'}`}>{(idx * EPISODES_PER_PAGE) + 1}-{Math.min((idx + 1) * EPISODES_PER_PAGE, episodes.length)}</button>
+                                                                  ))}
+                                                              </div>
+                                                          )}
+                                                          <div className="grid grid-cols-4 gap-2">
+                                                              {displayEpisodes.map((ep) => (
+                                                                  <button key={ep.index} onClick={() => setCurrentEpisodeIndex(ep.index)} className={`h-9 rounded border text-xs font-medium transition-all truncate px-1 ${currentEpisodeIndex === ep.index ? 'bg-brand text-black border-brand shadow-[0_0_10px_rgba(34,197,94,0.3)] font-bold' : 'bg-[#1a1f2e] text-gray-300 border-white/5 hover:border-white/30 hover:bg-white/5'}`} title={ep.title}>{ep.title}</button>
+                                                              ))}
+                                                          </div>
+                                                      </>
+                                                  ) : (
+                                                      <div className="space-y-2">
+                                                          {availableSources.map((source, idx) => (
+                                                              <button key={idx} onClick={() => handleSourceChange(idx)} className={`w-full text-left p-3 rounded-xl border transition-all flex justify-between items-center group ${currentSourceIndex === idx ? 'bg-brand/10 border-brand text-brand shadow-[0_0_15px_rgba(34,197,94,0.1)]' : 'bg-[#1a1f2e] border-white/5 text-gray-300 hover:bg-white/5 hover:border-white/20'}`}>
+                                                                  <div><div className={`font-bold text-sm mb-0.5 ${currentSourceIndex === idx ? 'text-brand' : 'text-gray-200'}`}>{source.name}</div><div className="text-[10px] text-gray-500 font-mono">{source.episodes.length} Episodes</div></div>
+                                                                  {currentSourceIndex === idx && <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-brand"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>}
+                                                              </button>
                                                           ))}
                                                       </div>
                                                   )}
-                                                  <div className="grid grid-cols-4 gap-2">
-                                                      {displayEpisodes.map((ep) => (
-                                                          <button key={ep.index} onClick={() => setCurrentEpisodeIndex(ep.index)} className={`h-9 rounded border text-xs font-medium transition-all truncate px-1 ${currentEpisodeIndex === ep.index ? 'bg-brand text-black border-brand shadow-[0_0_10px_rgba(34,197,94,0.3)] font-bold' : 'bg-[#1a1f2e] text-gray-300 border-white/5 hover:border-white/30 hover:bg-white/5'}`} title={ep.title}>{ep.title}</button>
-                                                      ))}
-                                                  </div>
-                                              </>
-                                          ) : (
-                                              <div className="space-y-2">
-                                                  {availableSources.map((source, idx) => (
-                                                      <button key={idx} onClick={() => handleSourceChange(idx)} className={`w-full text-left p-3 rounded-xl border transition-all flex justify-between items-center group ${currentSourceIndex === idx ? 'bg-brand/10 border-brand text-brand shadow-[0_0_15px_rgba(34,197,94,0.1)]' : 'bg-[#1a1f2e] border-white/5 text-gray-300 hover:bg-white/5 hover:border-white/20'}`}>
-                                                          <div><div className={`font-bold text-sm mb-0.5 ${currentSourceIndex === idx ? 'text-brand' : 'text-gray-200'}`}>{source.name}</div><div className="text-[10px] text-gray-500 font-mono">{source.episodes.length} Episodes</div></div>
-                                                          {currentSourceIndex === idx && <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-brand"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>}
-                                                      </button>
-                                                  ))}
                                               </div>
-                                          )}
+                                          </div>
                                       </div>
-                                  </div>
+                                  )}
                               </div>
-                          )}
-                      </div>
-                      <MovieInfoCard movie={currentMovie} onSearch={triggerSearch} />
-                      <Suspense fallback={null}><GeminiChat currentMovie={currentMovie} /></Suspense>
-                  </section>
-              )}
-
-              {/* Ensure Home only renders when NOT on play page */}
-              {activeTab === 'home' && !currentMovie && !isPlayPage && (
-                  <>
-                      {heroItems.length > 0 && <HeroBanner items={heroItems} onPlay={handleItemClick} />}
-                      {watchHistory.length > 0 && <HorizontalSection title="继续观看" items={watchHistory} id="history" onItemClick={handleItemClick} onItemContextMenu={handleContextMenu} />}
-                      {isHomeEmpty ? (
-                          <div className="flex flex-col items-center justify-center py-20 text-gray-500"><p className="text-lg">暂无推荐数据</p><button onClick={() => window.location.reload()} className="mt-4 text-brand hover:underline">刷新重试</button></div>
-                      ) : (
-                          <>
-                              <HorizontalSection title="热门电影" items={homeSections.movies} id="movies" onItemClick={handleItemClick} />
-                              <HorizontalSection title="热播剧集" items={homeSections.series} id="series" onItemClick={handleItemClick} />
-                              <HorizontalSection title="热门动漫" items={homeSections.anime} id="anime" onItemClick={handleItemClick} />
-                              <HorizontalSection title="精选综艺" items={homeSections.variety} id="variety" onItemClick={handleItemClick} />
-                          </>
+                              <MovieInfoCard movie={currentMovie} onSearch={triggerSearch} />
+                              <Suspense fallback={null}><GeminiChat currentMovie={currentMovie} /></Suspense>
+                          </section>
                       )}
                   </>
               )}
 
-              {(['movies', 'series', 'anime', 'variety'].includes(activeTab)) && !currentMovie && !isPlayPage && <CategoryGrid category={activeTab} onItemClick={handleItemClick} />}
+              {/* --- HOME/OTHER PAGE RENDERING (Mutually Exclusive) --- */}
+              {!isPlayPage && (
+                  <>
+                      {activeTab === 'home' && (
+                          <>
+                              {heroItems.length > 0 && <HeroBanner items={heroItems} onPlay={handleItemClick} />}
+                              {watchHistory.length > 0 && <HorizontalSection title="继续观看" items={watchHistory} id="history" onItemClick={handleItemClick} onItemContextMenu={handleContextMenu} />}
+                              {isHomeEmpty ? (
+                                  <div className="flex flex-col items-center justify-center py-20 text-gray-500"><p className="text-lg">暂无推荐数据</p><button onClick={() => window.location.reload()} className="mt-4 text-brand hover:underline">刷新重试</button></div>
+                              ) : (
+                                  <>
+                                      <HorizontalSection title="热门电影" items={homeSections.movies} id="movies" onItemClick={handleItemClick} />
+                                      <HorizontalSection title="热播剧集" items={homeSections.series} id="series" onItemClick={handleItemClick} />
+                                      <HorizontalSection title="热门动漫" items={homeSections.anime} id="anime" onItemClick={handleItemClick} />
+                                      <HorizontalSection title="精选综艺" items={homeSections.variety} id="variety" onItemClick={handleItemClick} />
+                                  </>
+                              )}
+                          </>
+                      )}
 
-              {activeTab === 'search' && !currentMovie && !isPlayPage && (
-                  <div className="animate-fade-in max-w-5xl mx-auto">
-                      <div className="flex gap-2 md:gap-4 mb-8">
-                          <div className="relative flex-1 group">
-                              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-gray-400 group-focus-within:text-brand transition-colors"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg></div>
-                              <form onSubmit={handleSearch} className="w-full"><input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="搜索电影、剧集、综艺、动漫..." className="w-full bg-[#121620] border border-white/10 rounded-xl py-3 md:py-4 pl-12 pr-4 text-white focus:outline-none focus:border-brand/50 focus:ring-1 focus:ring-brand/50 shadow-xl transition-all" /></form>
-                          </div>
-                          <button onClick={() => triggerSearch(searchQuery)} className="bg-brand hover:bg-brand-hover text-black font-bold px-6 md:px-8 rounded-xl transition-all hover:scale-105 shadow-[0_0_15px_rgba(34,197,94,0.3)] whitespace-nowrap">搜索</button>
-                      </div>
+                      {(['movies', 'series', 'anime', 'variety'].includes(activeTab)) && <CategoryGrid category={activeTab} onItemClick={handleItemClick} />}
 
-                      <div ref={resultsRef}>
-                          {loading ? (
-                              <div className="flex justify-center py-20"><div className="animate-spin h-10 w-10 border-4 border-brand border-t-transparent rounded-full"></div></div>
-                          ) : (
-                              <>
-                                  {personProfile && <PersonProfileCard person={personProfile} />}
-                                  {searchResults.length > 0 ? (
-                                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
-                                          {searchResults.map((item) => (
-                                              <div key={item.vod_id} onClick={() => handleItemClick(item)} className="group cursor-pointer bg-gray-900 rounded-xl overflow-hidden aspect-[2/3] relative border border-white/5 hover:border-brand/50 transition-all duration-300 hover:-translate-y-1 shadow-lg hover:shadow-brand/10">
-                                                  <ImageWithFallback src={item.vod_pic || ''} alt={item.vod_name} searchKeyword={item.vod_name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
-                                                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12">
-                                                      <h4 className="text-sm font-bold text-white truncate group-hover:text-brand transition-colors">{item.vod_name}</h4>
-                                                      <div className="flex justify-between items-center mt-1 text-xs text-gray-400"><span>{item.vod_year || 'N/A'}</span><span className="bg-white/10 px-1.5 py-0.5 rounded text-[10px]">{item.type_name || '影视'}</span></div>
-                                                  </div>
-                                                  {item.type_name === 'celebrity' && <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300"><button className="bg-brand text-black font-bold px-4 py-2 rounded-full transform scale-90 group-hover:scale-100 transition-transform">查看资料</button></div>}
-                                              </div>
-                                          ))}
-                                      </div>
+                      {activeTab === 'search' && (
+                          <div className="animate-fade-in max-w-5xl mx-auto">
+                              <div className="flex gap-2 md:gap-4 mb-8">
+                                  <div className="relative flex-1 group">
+                                      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-gray-400 group-focus-within:text-brand transition-colors"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg></div>
+                                      <form onSubmit={handleSearch} className="w-full"><input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="搜索电影、剧集、综艺、动漫..." className="w-full bg-[#121620] border border-white/10 rounded-xl py-3 md:py-4 pl-12 pr-4 text-white focus:outline-none focus:border-brand/50 focus:ring-1 focus:ring-brand/50 shadow-xl transition-all" /></form>
+                                  </div>
+                                  <button onClick={() => triggerSearch(searchQuery)} className="bg-brand hover:bg-brand-hover text-black font-bold px-6 md:px-8 rounded-xl transition-all hover:scale-105 shadow-[0_0_15px_rgba(34,197,94,0.3)] whitespace-nowrap">搜索</button>
+                              </div>
+
+                              <div ref={resultsRef}>
+                                  {loading ? (
+                                      <div className="flex justify-center py-20"><div className="animate-spin h-10 w-10 border-4 border-brand border-t-transparent rounded-full"></div></div>
                                   ) : (
-                                      hasSearched && <div className="text-center py-20 text-gray-500 flex flex-col items-center"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" className="w-16 h-16 mb-4 opacity-50"><path strokeLinecap="round" strokeLinejoin="round" d="M15.182 16.318A4.486 4.486 0 0012.016 15a4.486 4.486 0 00-3.198 1.318M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm-.375 0h.008v.015h-.008V9.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75zm-.375 0h.008v.015h-.008V9.75z" /></svg><p>未找到相关内容，换个关键词试试？</p></div>
+                                      <>
+                                          {personProfile && <PersonProfileCard person={personProfile} />}
+                                          {searchResults.length > 0 ? (
+                                              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
+                                                  {searchResults.map((item) => (
+                                                      <div key={item.vod_id} onClick={() => handleItemClick(item)} className="group cursor-pointer bg-gray-900 rounded-xl overflow-hidden aspect-[2/3] relative border border-white/5 hover:border-brand/50 transition-all duration-300 hover:-translate-y-1 shadow-lg hover:shadow-brand/10">
+                                                          <ImageWithFallback src={item.vod_pic || ''} alt={item.vod_name} searchKeyword={item.vod_name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                                                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12">
+                                                              <h4 className="text-sm font-bold text-white truncate group-hover:text-brand transition-colors">{item.vod_name}</h4>
+                                                              <div className="flex justify-between items-center mt-1 text-xs text-gray-400"><span>{item.vod_year || 'N/A'}</span><span className="bg-white/10 px-1.5 py-0.5 rounded text-[10px]">{item.type_name || '影视'}</span></div>
+                                                          </div>
+                                                          {item.type_name === 'celebrity' && <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300"><button className="bg-brand text-black font-bold px-4 py-2 rounded-full transform scale-90 group-hover:scale-100 transition-transform">查看资料</button></div>}
+                                                      </div>
+                                                  ))}
+                                              </div>
+                                          ) : (
+                                              hasSearched && <div className="text-center py-20 text-gray-500 flex flex-col items-center"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" className="w-16 h-16 mb-4 opacity-50"><path strokeLinecap="round" strokeLinejoin="round" d="M15.182 16.318A4.486 4.486 0 0012.016 15a4.486 4.486 0 00-3.198 1.318M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm-.375 0h.008v.015h-.008V9.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75zm-.375 0h.008v.015h-.008V9.75z" /></svg><p>未找到相关内容，换个关键词试试？</p></div>
+                                          )}
+                                      </>
                                   )}
-                              </>
-                          )}
-                      </div>
-                  </div>
+                              </div>
+                          </div>
+                      )}
+                  </>
               )}
           </div>
           
