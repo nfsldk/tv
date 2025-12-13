@@ -574,7 +574,12 @@ export const fetchDoubanData = async (keyword: string, doubanId?: string | numbe
     if (!html || typeof html !== 'string') return null;
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
-    const result: any = { doubanId: String(targetId) };
+    
+    // Extract Title
+    const title = doc.querySelector('h1 span[property="v:itemreviewed"]')?.textContent?.trim() || '';
+    
+    const result: any = { doubanId: String(targetId), title };
+    
     const getInfoField = (label: string): string => {
          const plSpan = Array.from(doc.querySelectorAll('#info span.pl')).find(el => el.textContent?.includes(label));
          if (!plSpan) return '';
