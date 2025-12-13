@@ -95,7 +95,7 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
 
   return (
     <div 
-        className="relative w-full h-[520px] md:h-[420px] rounded-2xl overflow-hidden mb-8 md:mb-12 group shadow-2xl bg-[#0a0a0a] touch-pan-y border border-white/5"
+        className="relative w-full h-[210px] md:h-[360px] rounded-2xl overflow-hidden mb-8 md:mb-12 group shadow-2xl bg-[#0a0a0a] touch-pan-y border border-white/5"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -610,14 +610,17 @@ const App: React.FC = () => {
   const handleResolveDoubanMovie = async (doubanId: string, name?: string, year?: string) => {
         setLoading(true);
         setCurrentMovie(null); 
+        setError('');
         
         try {
             let searchName = name;
+            // 1. If no name provided, fetch from Douban
             if (!searchName) {
                  const data = await fetchDoubanData('', doubanId);
                  if (data) searchName = data.title || ''; 
             }
 
+            // 2. Fallback to History
             if (!searchName) {
                  const hist = getHistory().find(h => String(h.vod_id) === doubanId);
                  if(hist) searchName = hist.vod_name;
@@ -629,6 +632,7 @@ const App: React.FC = () => {
                  return;
             }
 
+            // 3. Search CMS for the name
             const cleanName = searchName
                 .replace(/[（\(]\d{4}[）\)]/g, '')
                 .replace(/第.+?季|Season\s*\d+|S\d+/gi, '')
@@ -677,15 +681,8 @@ const App: React.FC = () => {
             }
 
             if (foundVideo) {
-                // IMPORTANT: Pass foundVideo.api_url here
+                // IMPORTANT: Pass doubanId into handleSelectMovie so it gets set in state immediately
                 await handleSelectMovie(foundVideo.vod_id, foundVideo.api_url, doubanId);
-                setCurrentMovie(prev => {
-                    if(!prev) return null;
-                    return {
-                        ...prev,
-                        vod_douban_id: doubanId,
-                    }
-                });
             } else {
                 setError('自动匹配失败，请尝试手动搜索');
                 setSearchQuery(searchName);
@@ -719,12 +716,10 @@ const App: React.FC = () => {
                   const rawId = idParam.replace(/^cms_/, '');
                   const currentRawId = String(currentMovie?.vod_id || '').replace(/^cms_/, '');
                   
-                  // Extract state passed from navigate
                   const state = location.state as any;
                   const doubanId = state?.doubanId;
-                  const apiUrl = state?.apiUrl; // IMPORTANT: Get the API URL from state if available
+                  const apiUrl = state?.apiUrl; 
 
-                  // Avoid refetch if we are already showing this movie
                   if (!currentMovie || currentRawId !== rawId) {
                       handleSelectMovie(idParam, apiUrl, doubanId);
                   }
@@ -862,9 +857,7 @@ const App: React.FC = () => {
         return;
       }
 
-      // Updated Logic: Only navigate, let useEffect handle the fetch
       if (item.api_url) {
-          // Pass both doubanId (for metadata) and api_url (for source) in state
           navigate(`/play/${item.vod_id}`, { 
               state: { 
                   doubanId: item.vod_douban_id,
