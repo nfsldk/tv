@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getHomeSections, searchCms, getAggregatedSearch, getAggregatedMovieDetail, parseAllSources, enrichVodDetail, fetchDoubanData, fetchCategoryItems, getHistory, addToHistory, removeFromHistory, fetchPersonDetail, initVodSources, getMovieDetail, getAlternativeVodDetails } from './services/vodService';
+import { getHomeSections, searchCms, getAggregatedSearch, getAggregatedMovieDetail, parseAllSources, enrichVodDetail, fetchDoubanData, fetchCategoryItems, getHistory, addToHistory, removeFromHistory, fetchPersonDetail, initVodSources } from './services/vodService';
 import MovieInfoCard from './components/MovieInfoCard';
 import ImageWithFallback from './components/ImageWithFallback';
 import { VodItem, VodDetail, Episode, PlaySource, HistoryItem, PersonDetail } from './types';
@@ -95,7 +95,7 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
 
   return (
     <div 
-        className="relative w-full h-[520px] md:h-[420px] rounded-2xl overflow-hidden mb-8 md:mb-12 group shadow-2xl bg-[#0a0a0a] touch-pan-y border border-white/5"
+        className="relative w-full h-[210px] md:h-[360px] rounded-2xl overflow-hidden mb-8 md:mb-12 group shadow-2xl bg-[#0a0a0a] touch-pan-y border border-white/5"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -458,6 +458,9 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('home');
   const [showSettings, setShowSettings] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
+  
+  // Ref to track the current movie load request ID to prevent race conditions (blank screen issue)
+  const currentRequestRef = useRef<number>(0);
 
   const [contextMenu, setContextMenu] = useState<{ visible: boolean, x: number, y: number, item: VodItem | null }>({ visible: false, x: 0, y: 0, item: null });
   
@@ -476,7 +479,7 @@ const App: React.FC = () => {
       initVodSources();
   }, []);
 
-  // SEO Logic: Tencent Style
+  // SEO Logic: Custom Requirements
   useEffect(() => {
       const path = location.pathname;
       const setMeta = (name: string, content: string) => {
@@ -493,14 +496,11 @@ const App: React.FC = () => {
       let desc = '';
       let keywords = '';
 
-      // 1. Home
       if (path === '/') {
           title = 'CineStream AI - 免费高清电影电视剧在线观看_2025最新好看的影视大全';
           desc = 'CineStream AI为您提供最新最热的电影、电视剧、动漫、综艺高清在线观看。海量资源，秒播不卡，支持智能AI互动，致力于为您提供极致的观影体验。';
           keywords = '电影,电视剧,综艺,动漫,视频,在线观看,CineStream AI,美剧,韩剧,4K,高清,免费视频,影视大全';
-      } 
-      // 2. Channel Pages
-      else if (path === '/dianying') {
+      } else if (path === '/dianying') {
           title = '电影频道-2025最新好看的电影排行榜-高清电影在线观看-CineStream AI';
           desc = 'CineStream AI电影频道汇集了全球最新最热的大片，涵盖动作、喜剧、科幻、恐怖、爱情等多种类型，提供高清流畅的在线观看体验。';
           keywords = '电影,电影大全,高清电影,免费电影,在线观看,动作片,喜剧片,科幻片,CineStream AI';
@@ -516,43 +516,34 @@ const App: React.FC = () => {
           title = '综艺频道-2025最新好看的综艺大全-高清综艺在线观看-CineStream AI';
           desc = 'CineStream AI综艺频道为您提供最新最热的国内综艺、韩国综艺、欧美综艺等，真人秀、脱口秀应有尽有。';
           keywords = '综艺,综艺大全,韩国综艺,真人秀,在线观看,CineStream AI';
-      } 
-      // 3. Detail Page (The most important one for Tencent style)
-      else if (path.startsWith('/play/') && currentMovie) {
+      } else if (path.startsWith('/play/') && currentMovie) {
           const type = currentMovie.type_name || '影视';
           const name = currentMovie.vod_name;
-          const actors = currentMovie.vod_actor || '';
-          const director = currentMovie.vod_director || '';
-          
-          let seoTitle = '';
           const isMovie = type.includes('电影') || type.includes('片') || episodes.length <= 1;
 
           if (isMovie) {
-              seoTitle = `《${name}》免费高清在线观看 - ${type} - CineStream AI`;
+              // 电影显示 名称
+              title = `${name} - 在线观看 - CineStream AI`;
           } else {
+              // 电视剧显示正在播放的第几集
               const ep = episodes[currentEpisodeIndex];
-              const epText = ep ? (ep.title.includes('集') || isNaN(Number(ep.title)) ? ep.title : `第${ep.title}集`) : '全集';
-              seoTitle = `《${name}》${epText}免费高清在线观看 - ${type} - CineStream AI`;
+              const epTitle = ep ? ep.title : (currentEpisodeIndex + 1).toString();
+              // Clean up title if it's just numbers
+              const displayEp = (epTitle.includes('集') || isNaN(Number(epTitle))) ? epTitle : `第${epTitle}集`;
+              title = `${name} ${displayEp} - 在线观看 - CineStream AI`;
           }
-
-          title = seoTitle;
           
           const rawContent = currentMovie.vod_content ? currentMovie.vod_content.replace(/<[^>]+>/g, '').slice(0, 150) : '';
-          desc = `《${name}》免费高清在线观看。剧情简介：${rawContent}... 主演：${actors}。导演：${director}。类型：${type}。`;
-          keywords = `${name},${name}在线观看,${name}全集,${name}下载,${actors},${director},${type},CineStream AI`;
-      } 
-      // 4. Search
-      else if (path.startsWith('/sousuo')) {
+          desc = `《${name}》免费高清在线观看。${rawContent}...`;
+          keywords = `${name},${name}在线观看,${name}全集,CineStream AI`;
+      } else if (path.startsWith('/sousuo')) {
            title = searchQuery ? `${searchQuery} - 视频搜索 - CineStream AI` : '搜索中心 - CineStream AI';
-           desc = 'CineStream AI全网搜索，找到你想看的每一部影视作品。';
-           keywords = '搜索,视频搜索,影视搜索,CineStream AI';
       }
 
       if (title) {
           document.title = title;
           setMeta('description', desc);
           setMeta('keywords', keywords);
-          // Standard OG Tags
           setMeta('og:title', title);
           setMeta('og:description', desc);
       }
@@ -605,8 +596,13 @@ const App: React.FC = () => {
   }, [fetchInitial]);
 
   const handleResolveDoubanMovie = async (doubanId: string, name?: string, year?: string) => {
+        // Generate new request ID
+        const requestId = Date.now();
+        currentRequestRef.current = requestId;
+
         setLoading(true);
-        setCurrentMovie(null); 
+        // Only clear if we aren't already viewing something (prevents flash)
+        if (activeTab !== 'play_page') setCurrentMovie(null); 
         setError('');
         
         try {
@@ -622,6 +618,8 @@ const App: React.FC = () => {
                  const hist = getHistory().find(h => String(h.vod_id) === doubanId);
                  if(hist) searchName = hist.vod_name;
             }
+
+            if (currentRequestRef.current !== requestId) return; // Stale request
 
             if (!searchName) {
                  setError('无法获取影片信息，请检查网络或重试');
@@ -645,6 +643,8 @@ const App: React.FC = () => {
 
             for (const q of queries) {
                 if(!q) continue;
+                if (currentRequestRef.current !== requestId) return; // Check during loop
+                
                 const res = await searchCms(q);
                 if (res.list && res.list.length > 0) {
                     const candidates = res.list as VodItem[];
@@ -677,8 +677,11 @@ const App: React.FC = () => {
                 }
             }
 
+            if (currentRequestRef.current !== requestId) return;
+
             if (foundVideo) {
-                // IMPORTANT: Pass doubanId into handleSelectMovie so it gets set in state immediately
+                // Pass existing request ID logic into handleSelectMovie or call it directly
+                // Note: handleSelectMovie generates its own ID, so we call it normally
                 await handleSelectMovie(foundVideo.vod_id, foundVideo.api_url, doubanId);
             } else {
                 setError(`未找到影片 "${searchName}" 的播放资源，请尝试手动搜索`);
@@ -688,8 +691,10 @@ const App: React.FC = () => {
 
         } catch (e) {
             console.error(e);
-            setError('资源解析失败，请检查网络');
-            setLoading(false);
+            if (currentRequestRef.current === requestId) {
+                setError('资源解析失败，请检查网络');
+                setLoading(false);
+            }
         }
   }
 
@@ -703,12 +708,10 @@ const App: React.FC = () => {
           if (idParam) {
               if (idParam.startsWith('db_')) {
                   const doubanId = idParam.replace('db_', '');
-                  // Check if we need to resolve
+                  // Only resolve if not current or if current is just a shell
                   if (!currentMovie || String(currentMovie.vod_douban_id) !== doubanId) {
                       const state = location.state as any;
-                      const name = state?.name;
-                      const year = state?.year;
-                      handleResolveDoubanMovie(doubanId, name, year);
+                      handleResolveDoubanMovie(doubanId, state?.name, state?.year);
                   }
               } else {
                   const rawId = idParam.replace(/^cms_/, '');
@@ -727,11 +730,13 @@ const App: React.FC = () => {
           const tab = URL_TO_TAB[path] || 'home';
           setActiveTab(tab);
           if (path !== 'play') {
-              setCurrentMovie(null); 
+              setCurrentMovie(null);
+              // Reset request ID to invalidate any pending play fetches
+              currentRequestRef.current = 0; 
           }
           setHasSearched(tab === 'search');
       }
-  }, [location.pathname]);
+  }, [location.pathname]); // Keep deps simple
 
   useEffect(() => {
     const handleClickOutside = () => setContextMenu({ ...contextMenu, visible: false });
@@ -776,32 +781,21 @@ const App: React.FC = () => {
              const detail = await fetchPersonDetail(celebrity.vod_id);
              if (detail) {
                  setPersonProfile(detail);
-                 
-                 // MERGE LOGIC: Combine Douban works with CMS results
                  const doubanWorks = detail.works || [];
                  const cmsResults = results.filter(r => r.type_name !== 'celebrity');
-                 
                  const mergedMap = new Map();
-                 
-                 // 1. Add Douban works (High Quality Metadata)
-                 doubanWorks.forEach(work => {
-                     mergedMap.set(work.vod_name, work);
-                 });
-                 
-                 // 2. Add CMS results (Playable)
+                 doubanWorks.forEach(work => mergedMap.set(work.vod_name, work));
                  cmsResults.forEach(item => {
                      if (!mergedMap.has(item.vod_name)) {
                          mergedMap.set(item.vod_name, item);
                      } else {
-                         // Update existing Douban item with API URL if available
                          const existing = mergedMap.get(item.vod_name);
                          if (item.api_url) {
                              existing.api_url = item.api_url;
-                             existing.vod_id = item.vod_id; // Prefer CMS ID for direct play
+                             existing.vod_id = item.vod_id; 
                          }
                      }
                  });
-                 
                  setSearchResults(Array.from(mergedMap.values()));
              } else {
                  setSearchResults(results);
@@ -811,7 +805,6 @@ const App: React.FC = () => {
                   const lowerQuery = query.toLowerCase();
                   const aName = a.vod_name.toLowerCase();
                   const bName = b.vod_name.toLowerCase();
-                  
                   if (aName === lowerQuery && bName !== lowerQuery) return -1;
                   if (bName === lowerQuery && aName !== lowerQuery) return 1;
                   return 0;
@@ -870,11 +863,14 @@ const App: React.FC = () => {
           return;
       }
       
-      // Fallback for items without direct URL or known source type
       navigate(`/play/${item.vod_id}`);
   };
 
   const handleSelectMovie = async (id: number | string, apiUrl?: string, doubanId?: string) => {
+      // 1. Generate a new Request ID
+      const requestId = Date.now();
+      currentRequestRef.current = requestId;
+
       setLoading(true);
       setShowSidePanel(true);
       setSidePanelTab('episodes');
@@ -883,6 +879,9 @@ const App: React.FC = () => {
       try {
           const result = await getAggregatedMovieDetail(id, apiUrl);
           
+          // 2. Check if request is still valid before updating state
+          if (currentRequestRef.current !== requestId) return;
+
           if (result && result.main) {
               const { main, alternatives } = result;
               
@@ -908,9 +907,12 @@ const App: React.FC = () => {
                   
                   window.scrollTo({ top: 0, behavior: 'smooth' });
 
+                  // 3. Handle enrichment asynchronously, but check validity again inside
                   enrichVodDetail(main).then(updates => {
-                      if (updates) {
+                      // Check if the user is still viewing THIS specific movie session
+                      if (currentRequestRef.current === requestId && updates) {
                           setCurrentMovie(prev => {
+                              // Double check prev state to ensure we don't resurrect a dead state
                               if (prev && String(prev.vod_id) === String(main.vod_id)) {
                                   return { ...prev, ...updates };
                               }
@@ -926,9 +928,13 @@ const App: React.FC = () => {
           }
       } catch (error) {
           console.error(error);
-          setError('影片加载失败，请检查网络或刷新重试');
+          if (currentRequestRef.current === requestId) {
+              setError('影片加载失败，请检查网络或刷新重试');
+          }
       } finally {
-          setLoading(false);
+          if (currentRequestRef.current === requestId) {
+              setLoading(false);
+          }
       }
   };
 
