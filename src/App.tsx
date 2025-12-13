@@ -445,6 +445,9 @@ const App: React.FC = () => {
   const [hasSearched, setHasSearched] = useState(false);
   const [currentMovie, setCurrentMovie] = useState<VodDetail | null>(null);
   
+  // Ref to hold the current VOD ID to prevent stale closures and unnecessary re-fetches
+  const currentVodIdRef = useRef<string | null>(null);
+  
   const [availableSources, setAvailableSources] = useState<PlaySource[]>([]);
   const [currentSourceIndex, setCurrentSourceIndex] = useState(0);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
@@ -492,12 +495,15 @@ const App: React.FC = () => {
       
       if (path === 'play') {
           setActiveTab('play_page');
+          // Only if we completely left play page, reset. 
+          // If we are just switching IDs (handled by next effect), we don't want to flash null here
       } else {
           const tab = URL_TO_TAB[path] || 'home';
           setActiveTab(tab);
-          // Only clear movie if strictly navigating away from play page
-          if (path !== 'play') {
-              setCurrentMovie(null);
+          // Only clear movie if strictly navigating away from play page to a non-play page
+          if (currentMovie || currentVodIdRef.current) {
+               setCurrentMovie(null);
+               currentVodIdRef.current = null;
           }
           setHasSearched(tab === 'search');
       }
@@ -510,28 +516,22 @@ const App: React.FC = () => {
           const idParam = pathParts[2];
           const state = location.state as any;
           
-          // Determine if we need to reload
-          // If we already have the movie loaded and the ID matches, don't reload.
-          // Note: Douban ID check needs care as it might be different from CMS ID
-          let shouldLoad = true;
-          if (currentMovie) {
-               if (idParam.startsWith('db_')) {
-                   if (String(currentMovie.vod_douban_id) === idParam.replace('db_', '')) shouldLoad = false;
-               } else if (String(currentMovie.vod_id) === idParam.replace('cms_', '') || String(currentMovie.vod_id) === idParam) {
-                   shouldLoad = false;
-               }
+          // Clean up ID (remove prefixes for comparison)
+          const rawId = idParam.replace(/^db_|^cms_/, '');
+          
+          // Check if we are already viewing this movie using the REF (stable source of truth)
+          if (currentVodIdRef.current === rawId || currentVodIdRef.current === idParam) {
+              return; // Already loaded/loading this movie
           }
 
-          if (shouldLoad) {
-              if (idParam.startsWith('db_')) {
-                  const doubanId = idParam.replace('db_', '');
-                  handleResolveDoubanMovie(doubanId, state?.name, state?.year);
-              } else {
-                  handleSelectMovie(idParam, state?.apiUrl, state?.doubanId);
-              }
+          if (idParam.startsWith('db_')) {
+              const doubanId = idParam.replace('db_', '');
+              handleResolveDoubanMovie(doubanId, state?.name, state?.year);
+          } else {
+              handleSelectMovie(idParam, state?.apiUrl, state?.doubanId);
           }
       }
-  }, [location.pathname, location.state]); // Dependency on pathname is enough as it contains ID
+  }, [location.pathname, location.state]);
 
   // --- SEO Logic ---
   useEffect(() => {
@@ -638,7 +638,8 @@ const App: React.FC = () => {
         requestRef.current = requestId;
         setLoading(true);
         setError('');
-        setCurrentMovie(null); // Explicitly reset to show loading
+        setCurrentMovie(null);
+        currentVodIdRef.current = null; // Reset REF too
 
         try {
             let searchName = name;
@@ -719,8 +720,10 @@ const App: React.FC = () => {
       setShowSidePanel(true);
       setSidePanelTab('episodes');
       
+      // Update REF immediately to block duplicate requests
+      currentVodIdRef.current = String(id).replace(/^cms_/, '');
+
       try {
-          // Pass raw ID, let service handle cms_ prefix if needed
           const result = await getAggregatedMovieDetail(id, apiUrl);
           
           if (requestRef.current !== requestId) return;
@@ -750,12 +753,18 @@ const App: React.FC = () => {
 
                   // Lazy load rich data (score, actors, etc)
                   enrichVodDetail(main).then(updates => {
-                      if (isMounted.current && requestRef.current === requestId && updates) {
+                      // Safety check: is component mounted? is request still valid? are there updates?
+                      if (isMounted.current && requestRef.current === requestId && updates && Object.keys(updates).length > 0) {
                           setCurrentMovie(prev => {
+                              // CRITICAL: Ensure we are still looking at the same movie before updating
+                              // This prevents "disappearing" content if ID changed rapidly or state reset
                               if (!prev || String(prev.vod_id) !== String(main.vod_id)) return prev;
                               return { ...prev, ...updates };
                           });
                       }
+                  }).catch(err => {
+                      console.warn("Enrichment failed silently:", err);
+                      // Don't break UI, just keep existing movie data
                   });
               } else {
                  setError('未找到可播放的M3U8资源');
@@ -973,9 +982,10 @@ const App: React.FC = () => {
                       </button>
                       
                       <div className="flex flex-col lg:flex-row gap-6 items-start h-auto relative transition-all duration-300">
-                          <div className={`flex-1 w-full bg-black rounded-xl overflow-hidden border border-white/5 shadow-2xl relative group transition-all duration-300 z-10 ${!showSidePanel ? 'lg:h-[650px]' : 'lg:h-[500px]'}`}>
+                          <div className={`flex-1 w-full min-h-[300px] bg-black rounded-xl overflow-hidden border border-white/5 shadow-2xl relative group transition-all duration-300 z-10 ${!showSidePanel ? 'lg:h-[650px]' : 'lg:h-[500px]'}`}>
                               <Suspense fallback={<div className="w-full h-full bg-black flex items-center justify-center"><div className="animate-spin h-10 w-10 border-4 border-brand border-t-transparent rounded-full"></div></div>}>
                                   <VideoPlayer 
+                                      key={currentMovie.vod_id} // Force remount if ID changes to prevent stale player state
                                       url={currentEpUrl} 
                                       poster={currentMovie.vod_pic}
                                       title={currentMovie.vod_name}
