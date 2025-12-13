@@ -95,7 +95,7 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
 
   return (
     <div 
-        className="relative w-full h-[210px] md:h-[360px] rounded-2xl overflow-hidden mb-8 md:mb-12 group shadow-2xl bg-[#0a0a0a] touch-pan-y border border-white/5"
+        className="relative w-full h-[520px] md:h-[420px] rounded-2xl overflow-hidden mb-8 md:mb-12 group shadow-2xl bg-[#0a0a0a] touch-pan-y border border-white/5"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -523,26 +523,23 @@ const App: React.FC = () => {
           const name = currentMovie.vod_name;
           const actors = currentMovie.vod_actor || '';
           const director = currentMovie.vod_director || '';
-          const year = currentMovie.vod_year || '';
           
-          let titleSuffix = '高清在线观看';
+          let seoTitle = '';
           const isMovie = type.includes('电影') || type.includes('片') || episodes.length <= 1;
 
-          if (!isMovie) {
-              const epIndex = currentEpisodeIndex >= 0 ? currentEpisodeIndex + 1 : 1;
-              const epTitle = episodes[currentEpisodeIndex]?.title;
-              if (epTitle && (epTitle.includes('集') || !isNaN(Number(epTitle)))) {
-                   titleSuffix = `第${epTitle.replace(/[^0-9]/g, '')}集在线观看`;
-              } else {
-                   titleSuffix = '全集在线观看';
-              }
+          if (isMovie) {
+              seoTitle = `《${name}》免费高清在线观看 - ${type} - CineStream AI`;
+          } else {
+              const ep = episodes[currentEpisodeIndex];
+              const epText = ep ? (ep.title.includes('集') || isNaN(Number(ep.title)) ? ep.title : `第${ep.title}集`) : '全集';
+              seoTitle = `《${name}》${epText}免费高清在线观看 - ${type} - CineStream AI`;
           }
 
-          title = `《${name}》${titleSuffix} - 剧情介绍 - ${type} - CineStream AI`;
+          title = seoTitle;
           
           const rawContent = currentMovie.vod_content ? currentMovie.vod_content.replace(/<[^>]+>/g, '').slice(0, 150) : '';
           desc = `《${name}》免费高清在线观看。剧情简介：${rawContent}... 主演：${actors}。导演：${director}。类型：${type}。`;
-          keywords = `${name},${name}在线观看,${name}全集,${name}下载,${actors},${director},${type},${year},CineStream AI`;
+          keywords = `${name},${name}在线观看,${name}全集,${name}下载,${actors},${director},${type},CineStream AI`;
       } 
       // 4. Search
       else if (path.startsWith('/sousuo')) {
@@ -627,7 +624,7 @@ const App: React.FC = () => {
             }
 
             if (!searchName) {
-                 setError('无法获取影片信息');
+                 setError('无法获取影片信息，请检查网络或重试');
                  setLoading(false);
                  return;
             }
@@ -684,7 +681,7 @@ const App: React.FC = () => {
                 // IMPORTANT: Pass doubanId into handleSelectMovie so it gets set in state immediately
                 await handleSelectMovie(foundVideo.vod_id, foundVideo.api_url, doubanId);
             } else {
-                setError('自动匹配失败，请尝试手动搜索');
+                setError(`未找到影片 "${searchName}" 的播放资源，请尝试手动搜索`);
                 setSearchQuery(searchName);
                 setLoading(false);
             }
@@ -706,6 +703,7 @@ const App: React.FC = () => {
           if (idParam) {
               if (idParam.startsWith('db_')) {
                   const doubanId = idParam.replace('db_', '');
+                  // Check if we need to resolve
                   if (!currentMovie || String(currentMovie.vod_douban_id) !== doubanId) {
                       const state = location.state as any;
                       const name = state?.name;
