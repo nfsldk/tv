@@ -645,10 +645,7 @@ const App: React.FC = () => {
         requestRef.current = requestId;
         setLoading(true);
         setError('');
-        // Don't clear currentMovie immediately to avoid flicker if re-resolving 
-        // setCurrentMovie(null); 
-        // currentVodIdRef.current = null; // REMOVED to prevent loop
-
+        
         try {
             let searchName = name;
             if (!searchName) {
@@ -664,28 +661,39 @@ const App: React.FC = () => {
             if (!searchName) throw new Error('Cannot resolve movie name');
             if (requestRef.current !== requestId) return;
 
+            // --- Multi-Strategy Search ---
             const cleanName = searchName
                 .replace(/[（\(]\d{4}[）\)]/g, '')
                 .replace(/第.+?季|Season\s*\d+|S\d+/gi, '')
                 .replace(/集/g, '')
                 .trim();
             
-            const normalize = (str: string) => str.replace(/[\s\.\-_:：，,]+/g, '').toLowerCase();
-            const targetFingerprint = normalize(searchName);
-            const cleanFingerprint = normalize(cleanName);
+            const nameParts = searchName.split(' ');
+            const firstPart = nameParts[0]; // Often the main Chinese title
+            const nameWithoutSeason = searchName.replace(/第.+?季|Season\s*\d+/gi, '').trim();
 
-            // Search Strategy
-            const res = await searchCms(searchName);
-            let candidates = (res.list as VodItem[]) || [];
-            
-            // If direct search fails, try cleaner name
-            if (candidates.length === 0 && searchName !== cleanName) {
-                const res2 = await searchCms(cleanName);
-                candidates = (res2.list as VodItem[]) || [];
+            // Prioritize strategies: Exact -> Clean -> First Part (Chinese) -> No Season
+            const strategies = [searchName, cleanName, firstPart, nameWithoutSeason];
+            const uniqueStrategies = [...new Set(strategies)].filter(s => s && s.length > 1);
+
+            let candidates: VodItem[] = [];
+            let foundVideo: VodItem | null = null;
+
+            // Try each strategy until we find results
+            for (const term of uniqueStrategies) {
+                const res = await searchCms(term);
+                if (res.list && res.list.length > 0) {
+                    candidates = res.list as VodItem[];
+                    // If we find results, we can stop fetching, but we still need to pick the best one
+                    break; 
+                }
             }
 
-            let foundVideo: VodItem | null = null;
             if (candidates.length > 0) {
+                 const normalize = (str: string) => str.replace(/[\s\.\-_:：，,]+/g, '').toLowerCase();
+                 const targetFingerprint = normalize(searchName);
+                 const cleanFingerprint = normalize(cleanName);
+
                  // 1. Exact Match
                  foundVideo = candidates.find(v => normalize(v.vod_name) === targetFingerprint) || null;
                  // 2. Clean Match
@@ -694,7 +702,7 @@ const App: React.FC = () => {
                  if (!foundVideo && year) {
                      foundVideo = candidates.find(v => normalize(v.vod_name).includes(cleanFingerprint) && v.vod_year === year) || null;
                  }
-                 // 4. Fuzzy Match
+                 // 4. Fuzzy Match / First Candidate (Aggressive fallback to ensure playback)
                  if (!foundVideo) {
                       foundVideo = candidates.find(v => normalize(v.vod_name).includes(cleanFingerprint)) || candidates[0];
                  }
@@ -938,6 +946,9 @@ const App: React.FC = () => {
       navigate(`/play/${item.vod_id}`);
   };
 
+  // Safe check for play page rendering
+  const isPlayPage = location.pathname.startsWith('/play');
+
   return (
       <div className="relative min-h-screen pb-20 overflow-x-hidden font-sans pt-24 lg:pt-16">
           <NavBar activeTab={activeTab} onTabChange={handleTabChange} onSettingsClick={() => setShowSettings(true)} />
@@ -965,7 +976,7 @@ const App: React.FC = () => {
           <div className="relative z-10 container mx-auto px-4 lg:px-6 py-6 max-w-[1400px]">
               
               {/* Error Display for Playback Page */}
-              {error && activeTab === 'play_page' && !loading && (
+              {error && isPlayPage && !loading && (
                   <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
                       <div className="bg-red-500/10 p-6 rounded-2xl border border-red-500/20 max-w-md">
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12 text-red-400 mx-auto mb-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
@@ -985,7 +996,22 @@ const App: React.FC = () => {
                   </div>
               )}
 
-              {currentMovie && activeTab === 'play_page' && (
+              {/* Fallback for Empty Play Page (No Error, No Loading, No Movie) */}
+              {isPlayPage && !currentMovie && !loading && !error && (
+                  <div className="flex flex-col items-center justify-center py-32 text-center animate-fade-in min-h-[50vh]">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" className="w-20 h-20 text-gray-600 mb-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" /></svg>
+                      <h2 className="text-2xl font-bold text-white mb-2">未找到资源</h2>
+                      <p className="text-gray-400 mb-8 max-w-md">我们努力搜索了，但似乎没能自动匹配到该影片的播放源。</p>
+                      <div className="w-full max-w-md">
+                           <div className="flex gap-2">
+                              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="尝试输入影片名称搜索..." className="flex-1 bg-[#121620] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand/50" />
+                              <button onClick={() => triggerSearch(searchQuery)} className="bg-brand text-black font-bold px-6 rounded-xl hover:bg-brand-hover transition-colors">搜索</button>
+                           </div>
+                      </div>
+                  </div>
+              )}
+
+              {currentMovie && isPlayPage && (
                   <section className="mb-12 animate-fade-in space-y-6 mt-4">
                       <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-gray-400 hover:text-white mb-4">
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" /></svg>
