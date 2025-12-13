@@ -348,16 +348,28 @@ export const fetchPersonDetail = async (id: string | number): Promise<PersonDeta
             if (text.includes('职业')) role = text.replace('职业:', '').trim();
         });
         
-        let works: VodItem[] = [];
+        const worksMap = new Map<string, VodItem>();
         doc.querySelectorAll('#best_works .bd ul li, #recent_movies .bd ul li').forEach(li => {
             const title = li.querySelector('.pic a')?.getAttribute('title') || '';
+            if (!title) return;
+            
             const subjectId = li.querySelector('.pic a')?.getAttribute('href')?.match(/subject\/(\d+)/)?.[1];
             const picUrl = (li.querySelector('.pic img')?.getAttribute('src') || '').replace(/s_ratio_poster|m(?=\/public)/, 'l');
             const rating = li.querySelector('.rating')?.textContent?.trim() || '';
-            if (subjectId) works.push({ vod_id: subjectId, vod_name: title, vod_pic: picUrl, vod_score: rating, source: 'douban' } as VodItem);
+            
+            if (subjectId && !worksMap.has(title)) {
+                worksMap.set(title, { 
+                    vod_id: subjectId, 
+                    vod_name: title, 
+                    vod_pic: picUrl, 
+                    vod_score: rating, 
+                    source: 'douban',
+                    type_name: '电影' // Default assumption
+                } as VodItem);
+            }
         });
         
-        return { id: String(id), name, pic, gender, constellation, birthdate, birthplace, role, intro, works };
+        return { id: String(id), name, pic, gender, constellation, birthdate, birthplace, role, intro, works: Array.from(worksMap.values()) };
     } catch (e) { return null; }
 };
 

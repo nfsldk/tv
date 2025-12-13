@@ -689,11 +689,33 @@ const App: React.FC = () => {
              const detail = await fetchPersonDetail(celebrity.vod_id);
              if (detail) {
                  setPersonProfile(detail);
-                 if (detail.works && detail.works.length > 0) {
-                     setSearchResults(detail.works);
-                 } else {
-                     setSearchResults(results.filter(r => r.type_name !== 'celebrity'));
-                 }
+                 
+                 // MERGE LOGIC: Combine Douban works with CMS results
+                 const doubanWorks = detail.works || [];
+                 const cmsResults = results.filter(r => r.type_name !== 'celebrity');
+                 
+                 const mergedMap = new Map();
+                 
+                 // 1. Add Douban works (High Quality Metadata)
+                 doubanWorks.forEach(work => {
+                     mergedMap.set(work.vod_name, work);
+                 });
+                 
+                 // 2. Add CMS results (Playable)
+                 cmsResults.forEach(item => {
+                     if (!mergedMap.has(item.vod_name)) {
+                         mergedMap.set(item.vod_name, item);
+                     } else {
+                         // Update existing Douban item with API URL if available
+                         const existing = mergedMap.get(item.vod_name);
+                         if (item.api_url) {
+                             existing.api_url = item.api_url;
+                             existing.vod_id = item.vod_id; // Prefer CMS ID for direct play
+                         }
+                     }
+                 });
+                 
+                 setSearchResults(Array.from(mergedMap.values()));
              } else {
                  setSearchResults(results);
              }
@@ -746,13 +768,19 @@ const App: React.FC = () => {
         return;
       }
 
-      if (item.api_url && item.source !== 'douban') {
+      if (item.api_url) {
           handleSelectMovie(item.vod_id, item.api_url);
           navigate(`/play/${item.vod_id}`);
           return;
       }
 
-      navigate(`/play/db_${item.vod_id}`, { state: { name: item.vod_name, pic: item.vod_pic, year: item.vod_year } });
+      if (item.source === 'douban') {
+          navigate(`/play/db_${item.vod_id}`, { state: { name: item.vod_name, pic: item.vod_pic, year: item.vod_year } });
+          return;
+      }
+      
+      // Fallback for items without direct URL or known source type
+      navigate(`/play/${item.vod_id}`);
   };
 
   const handleSelectMovie = async (id: number | string, apiUrl?: string) => {
@@ -814,7 +842,8 @@ const App: React.FC = () => {
                   return;
               }
           }
-          setError('未找到可播放的M3U8资源，请尝试切换其他源');
+          // Fix: Explicitly set error if no valid movie/sources found
+          setError('未找到可播放的M3U8资源，请尝试切换其他源或刷新重试');
       } catch (error) {
           console.error(error);
           setError('影片加载失败，请检查网络或刷新重试');
