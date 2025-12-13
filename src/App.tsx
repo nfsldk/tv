@@ -95,7 +95,7 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
 
   return (
     <div 
-        className="relative w-full h-[520px] md:h-[420px] rounded-2xl overflow-hidden mb-8 md:mb-12 group shadow-2xl bg-[#0a0a0a] touch-pan-y border border-white/5"
+        className="relative w-full h-[210px] md:h-[360px] rounded-2xl overflow-hidden mb-8 md:mb-12 group shadow-2xl bg-[#0a0a0a] touch-pan-y border border-white/5"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -686,14 +686,14 @@ const App: React.FC = () => {
                     }
                 });
             } else {
-                setError('自动匹配失败，请在搜索结果中手动选择');
-                triggerSearch(searchName);
+                setError('自动匹配失败，请尝试手动搜索');
+                setSearchQuery(searchName);
+                setLoading(false);
             }
 
         } catch (e) {
             console.error(e);
             setError('资源解析失败，请检查网络');
-        } finally {
             setLoading(false);
         }
   }
@@ -703,7 +703,7 @@ const App: React.FC = () => {
       const path = pathParts[1] || '';
       
       if (path === 'play') {
-          setActiveTab('play_page'); // Explicitly set activeTab to prevent Home UI overlap
+          setActiveTab('play_page');
           const idParam = pathParts[2];
           if (idParam) {
               if (idParam.startsWith('db_')) {
@@ -876,11 +876,12 @@ const App: React.FC = () => {
       setError('');
       
       try {
-          const realId = String(id).replace('cms_', '');
-          const main = await getMovieDetail(realId, apiUrl);
+          const result = await getAggregatedMovieDetail(id, apiUrl);
           
-          if (main) {
-              const allSources = parseAllSources(main);
+          if (result && result.main) {
+              const { main, alternatives } = result;
+              
+              const allSources = parseAllSources([main, ...alternatives]);
               
               if (allSources.length > 0) {
                   const m3u8Index = allSources.findIndex(s => s.name.toLowerCase().includes('m3u8'));
@@ -889,8 +890,7 @@ const App: React.FC = () => {
                   setAvailableSources(allSources);
                   setCurrentSourceIndex(initialIndex);
                   setEpisodes(allSources[initialIndex].episodes);
-                  setCurrentMovie(main); 
-                  setLoading(false);     
+                  setCurrentMovie(main);
                   
                   const savedIndex = parseInt(localStorage.getItem(`cine_last_episode_${main.vod_id}`) || '0');
                   if (!isNaN(savedIndex) && savedIndex >= 0 && savedIndex < allSources[initialIndex].episodes.length) {
@@ -911,25 +911,12 @@ const App: React.FC = () => {
                           });
                       }
                   });
-
-                  getAlternativeVodDetails(main).then(alternatives => {
-                      if (alternatives.length > 0) {
-                          const altSources = parseAllSources(alternatives);
-                          if (altSources.length > 0) {
-                              setAvailableSources(prev => {
-                                  const existingNames = new Set(prev.map(s => s.name));
-                                  const newUnique = altSources.filter(s => !existingNames.has(s.name));
-                                  return [...prev, ...newUnique];
-                              });
-                          }
-                      }
-                  });
-
-                  return;
+              } else {
+                 setError('未找到可播放的M3U8资源，请尝试切换其他源或刷新重试');
               }
+          } else {
+              setError('无法加载影片详情，请稍后重试');
           }
-          // Fix: Explicitly set error if no valid movie/sources found
-          setError('未找到可播放的M3U8资源，请尝试切换其他源或刷新重试');
       } catch (error) {
           console.error(error);
           setError('影片加载失败，请检查网络或刷新重试');
