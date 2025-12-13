@@ -55,11 +55,14 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
 
   useEffect(() => {
       if (items && items.length > 0) {
-          const item = items[currentIndex];
-          setDetail(null);
-          fetchDoubanData(item.vod_name, item.vod_id).then(res => {
-              if (res) setDetail(res);
-          });
+          const idx = currentIndex % items.length; // Safety clamp
+          const item = items[idx];
+          if (item) {
+              setDetail(null);
+              fetchDoubanData(item.vod_name, item.vod_id).then(res => {
+                  if (res) setDetail(res);
+              });
+          }
       }
   }, [currentIndex, items]);
 
@@ -92,7 +95,9 @@ const HeroBanner = ({ items, onPlay }: { items: VodItem[], onPlay: (item: VodIte
   };
 
   if (!items || items.length === 0) return null;
-  const activeItem = items[currentIndex];
+  // Safety check: ensure activeItem exists even if index is out of sync
+  const activeItem = items[currentIndex % items.length];
+  if (!activeItem) return null;
 
   return (
     <div 
@@ -839,7 +844,12 @@ const App: React.FC = () => {
   }, [currentEpisodeIndex, episodes.length]);
 
   const isHomeEmpty = useMemo(() => {
-      return !loading && activeTab === 'home' && (!homeSections.movies || homeSections.movies.length === 0);
+      const { movies, series, anime, variety } = homeSections;
+      const hasContent = (movies && movies.length > 0) || 
+                         (series && series.length > 0) || 
+                         (anime && anime.length > 0) || 
+                         (variety && variety.length > 0);
+      return !loading && activeTab === 'home' && !hasContent;
   }, [loading, activeTab, homeSections]);
 
   useEffect(() => {
