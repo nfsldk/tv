@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI, Chat } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import { VodDetail, ChatMessage } from '../types';
 
 interface GeminiChatProps {
@@ -12,52 +12,12 @@ const GeminiChat: React.FC<GeminiChatProps> = ({ currentMovie }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  
-  // Use a ref to persist the chat session across renders
-  const chatSessionRef = useRef<Chat | null>(null);
 
   useEffect(() => {
       if (isOpen && messagesEndRef.current) {
           messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
       }
   }, [messages, isOpen]);
-
-  // Re-initialize chat session when the movie context changes
-  useEffect(() => {
-      const apiKey = process.env.API_KEY;
-      if (!apiKey) return;
-
-      try {
-          const ai = new GoogleGenAI({ apiKey });
-          
-          let systemInstruction = "你是一个幽默、知识渊博的电影助手。请用中文简练地回答。";
-          if (currentMovie) {
-              const cleanContent = currentMovie.vod_content ? currentMovie.vod_content.replace(/<[^>]+>/g, '') : '暂无';
-              systemInstruction += `
-              当前上下文 - 用户正在观看影片：
-              名称: ${currentMovie.vod_name}
-              类型: ${currentMovie.type_name}
-              年份: ${currentMovie.vod_year}
-              地区: ${currentMovie.vod_area}
-              主演: ${currentMovie.vod_actor}
-              简介: ${cleanContent}
-              `;
-          } else {
-              systemInstruction += "用户目前在首页浏览。";
-          }
-
-          chatSessionRef.current = ai.chats.create({
-              model: 'gemini-2.5-flash',
-              config: { systemInstruction }
-          });
-          
-          // Reset chat history visually when context changes
-          setMessages([{ role: 'model', text: currentMovie ? `已切换到《${currentMovie.vod_name}》的讨论模式。` : '你好！我是你的观影 AI 助手。' }]);
-
-      } catch (e) {
-          console.error("Failed to init chat session", e);
-      }
-  }, [currentMovie]);
 
   const handleSend = async () => {
       if (!input.trim() || isLoading) return;
@@ -74,35 +34,35 @@ const GeminiChat: React.FC<GeminiChatProps> = ({ currentMovie }) => {
       }
 
       try {
-          // Fallback init if ref is null (e.g. first render race condition or error)
-          if (!chatSessionRef.current) {
-               const ai = new GoogleGenAI({ apiKey });
-               chatSessionRef.current = ai.chats.create({
-                  model: 'gemini-2.5-flash',
-                  config: { systemInstruction: "你是一个幽默、知识渊博的电影助手。" }
-               });
+          const ai = new GoogleGenAI({ apiKey });
+          let systemInstruction = "你是一个幽默、知识渊博的电影助手。请用中文简练地回答。";
+          
+          if (currentMovie) {
+              const cleanContent = currentMovie.vod_content ? currentMovie.vod_content.replace(/<[^>]+>/g, '') : '暂无';
+              systemInstruction += `
+              当前上下文 - 用户正在观看影片：
+              名称: ${currentMovie.vod_name}
+              类型: ${currentMovie.type_name}
+              年份: ${currentMovie.vod_year}
+              地区: ${currentMovie.vod_area}
+              主演: ${currentMovie.vod_actor}
+              简介: ${cleanContent}
+              `;
+          } else {
+              systemInstruction += "用户目前在首页浏览。";
           }
 
-          const response = await chatSessionRef.current.sendMessage({
-              message: userText
+          const response = await ai.models.generateContent({
+              model: 'gemini-2.5-flash',
+              contents: [{ role: 'user', parts: [{ text: userText }] }],
+              config: { systemInstruction }
           });
 
           const reply = response.text || "抱歉，我没有理解您的问题。";
           setMessages(prev => [...prev, { role: 'model', text: reply }]);
-      } catch (error: any) {
+      } catch (error) {
           console.error("AI Error", error);
-          let errorMsg = "AI 服务暂时不可用。";
-          
-          if (error.message?.includes('403') || error.toString().includes('403')) {
-              errorMsg = "API Key 无效或无权限。";
-          } else if (error.message?.includes('429')) {
-              errorMsg = "请求过多，请稍后再试。";
-          } else if (error.message) {
-              // Show detailed error in dev, simplified in prod if needed, but here giving a hint is good
-              errorMsg = `错误: ${error.message.slice(0, 50)}...`;
-          }
-
-          setMessages(prev => [...prev, { role: 'model', text: errorMsg }]);
+          setMessages(prev => [...prev, { role: 'model', text: "AI 服务暂时不可用。" }]);
       } finally {
           setIsLoading(false);
       }
