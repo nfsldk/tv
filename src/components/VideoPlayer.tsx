@@ -35,19 +35,23 @@ function filterAdsFromM3U8(m3u8Content: string) {
     let inAdBlock = false;
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
+        // Remove lines associated with ads
         if (line.includes('EXT-X-CUE-OUT') || line.includes('SCTE35') || (line.includes('DATERANGE') && line.includes('SCTE35'))) { inAdBlock = true; continue; }
         if (line.includes('EXT-X-CUE-IN')) { inAdBlock = false; continue; }
+        // Also remove discontinuities inside ad blocks or if they are just floaters (aggressive filtering)
         if (inAdBlock || line.includes('EXT-X-DISCONTINUITY')) continue;
         filteredLines.push(lines[i]);
     }
     return filteredLines.join('\n');
 }
 
+// Convert relative paths in M3U8 to absolute paths based on the manifest URL
 function resolveRelativePaths(content: string, baseUrl: string) {
     const lines = content.split('\n');
     return lines.map(line => {
         const trimmed = line.trim();
-        if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('http') && !trimmed.startsWith('blob:')) {
+        // If it's not a comment, empty, or already absolute/blob
+        if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('http') && !trimmed.startsWith('blob:') && !trimmed.startsWith('data:')) {
              try {
                  return new URL(trimmed, baseUrl).href;
              } catch(e) { return line; }
@@ -104,8 +108,7 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
   useEffect(() => {
       if (!containerRef.current) return;
       
-      // CRITICAL FIX: Pass false to destroy() to PREVENT removing the DOM node managed by React.
-      // If true is passed, strict mode or re-renders will cause Artplayer to attach to a detached node.
+      // CRITICAL: Pass false to destroy() to PREVENT removing the DOM node managed by React.
       if (artRef.current) {
           artRef.current.destroy(false);
           artRef.current = null;
@@ -198,27 +201,29 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                           if (art.hls) art.hls.destroy();
                           
                           let playUrl = url;
+                          const originalUrl = url;
                           
-                          // --- M3U8 Filtering Logic ---
-                          // Attempt to fetch, filter ads, and create Blob URL
+                          // --- M3U8 Ad Filtering Logic ---
+                          // Attempt to fetch, filter ads, and create Blob URL for HTTP streams
                           try {
-                              // Only filter if not a blob/local url already
                               if (url.startsWith('http')) {
-                                  console.log('Attempting to filter ads from M3U8...');
+                                  console.log('Checking M3U8 for ads...');
+                                  // Use standard fetch. If CORS fails, it jumps to catch.
                                   const response = await fetch(url);
                                   if (response.ok) {
                                       const rawText = await response.text();
                                       const filteredText = filterAdsFromM3U8(rawText);
-                                      // IMPORTANT: We must resolve relative paths because Blob URL changes the base
+                                      
+                                      // If content was modified (or just to be safe with relative paths in Blob)
                                       const resolvedText = resolveRelativePaths(filteredText, url);
                                       
                                       const blob = new Blob([resolvedText], { type: 'application/vnd.apple.mpegurl' });
                                       playUrl = URL.createObjectURL(blob);
-                                      console.log('Ad filtering successful, using Blob URL');
+                                      console.log('M3U8 loaded via Blob (Ad filtered)');
                                   }
                               }
                           } catch (e) {
-                              console.warn('Ad filtering fetch failed (likely CORS), falling back to direct URL.', e);
+                              console.warn('Ad filtering skipped (fetch failed/CORS), using direct URL.', e);
                               playUrl = url;
                           }
 
@@ -229,6 +234,7 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                               maxMaxBufferLength: 600,
                           });
                           
+                          // Handle HLS Errors
                           hls.on(Hls.Events.ERROR, function (event, data) {
                                if (data.fatal) {
                                    switch (data.type) {
@@ -249,9 +255,10 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                                }
                            });
 
-                          // Try P2P Engine with robust import handling
+                          // Initialize P2P Engine
                           try {
                               let EngineClass: any = P2PEngine;
+                              // Handle ESM/CommonJS default export interop
                               if (typeof P2PEngine !== 'function' && (P2PEngine as any).default) {
                                   EngineClass = (P2PEngine as any).default;
                               }
@@ -260,23 +267,22 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                                   new EngineClass(hls, {
                                       maxBufSize: 1024 * 1024 * 1024,
                                       p2pEnabled: true,
-                                      // CRITICAL FIX: Use the original 'url' (from m3u8 function scope), NOT the 'playUrl' (which might be blob)
-                                      // And ignore the argument passed to channelId, because that would be the blob url if filtered
-                                      channelId: function(_segmentUrl: string) { return url; } 
+                                      // IMPORTANT: Use original URL as channelId because playUrl might be a transient Blob
+                                      channelId: function(_segmentUrl: string) { return originalUrl; } 
                                   });
                                   console.log('P2P Engine enabled');
                               }
                           } catch (e) {
-                              console.warn('P2P Engine failed to initialize, using standard HLS.', e);
+                              console.warn('P2P Engine failed to initialize', e);
                           }
                           
+                          // Load source and attach media
+                          hls.loadSource(playUrl);
                           hls.attachMedia(video);
-                          hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-                              hls.loadSource(playUrl);
-                          });
                           
                           art.hls = hls;
                           
+                          // Cleanup listener
                           art.on('destroy', () => {
                               if (art.hls) {
                                   art.hls.destroy();
@@ -320,7 +326,7 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
 
       return () => {
           if (artRef.current) {
-              artRef.current.destroy(false); // CRITICAL: Do not remove DOM on cleanup
+              artRef.current.destroy(false); // Do not remove DOM on cleanup to work with React
               artRef.current = null;
           }
       };
