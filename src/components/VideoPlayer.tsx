@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, forwardRef, useImperativeHandle, useMemo } from 'react';
+import React, { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import Artplayer from 'artplayer';
 import artplayerPluginDanmuku from 'artplayer-plugin-danmuku';
 import Hls from 'hls.js';
@@ -71,71 +71,125 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
   useEffect(() => {
       if (!containerRef.current) return;
       
-      const art = new Artplayer({
-          container: containerRef.current,
-          url: propsRef.current.url,
-          poster: propsRef.current.poster,
-          autoplay: propsRef.current.autoplay,
-          volume: 0.7,
-          isLive: false,
-          autoMini: false,
-          pip: true,
-          fullscreen: true,
-          fullscreenWeb: true,
-          theme: '#22c55e',
-          lang: 'zh-cn',
-          moreVideoAttr: { crossOrigin: 'anonymous', playsInline: true, 'webkit-playsinline': true } as any,
-          plugins: [
-              artplayerPluginDanmuku({
-                  danmuku: async () => {
-                      return await fetchDanmaku(propsRef.current.title || '', propsRef.current.episodeIndex || 0);
-                  },
-                  speed: 10,
-                  opacity: 1,
-                  fontSize: 25,
-                  color: '#FFFFFF',
-                  mode: 0,
-                  margin: [10, '75%'],
-                  antiOverlap: true,
-                  synchronousPlayback: true,
-              }),
-          ],
-          controls: [
-             {
-                name: 'next-episode',
-                position: 'left',
-                index: 15,
-                html: ICONS.next,
-                tooltip: '下一集',
-                style: { cursor: 'pointer', display: 'flex', alignItems: 'center', marginLeft: '2px' },
-                click: function () { if (propsRef.current.onNext) propsRef.current.onNext(); },
-             }
-          ],
-          customType: {
-              m3u8: function (video: HTMLVideoElement, url: string, art: any) {
-                  if (Hls.isSupported()) {
-                      const hls = new Hls({ debug: false, enableWorker: true });
-                      if (P2PEngine && (P2PEngine as any).isSupported()) {
-                          new (P2PEngine as any)(hls, {
-                              maxBufSize: 1024 * 1024 * 1024,
-                              p2pEnabled: true,
-                          });
-                      }
-                      hls.loadSource(url);
-                      hls.attachMedia(video);
-                      art.hls = hls;
-                      art.on('destroy', () => hls.destroy());
-                  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                      video.src = url;
-                  } else {
-                      art.notice.show = 'Unsupported playback format: m3u8';
-                  }
-              }
-          },
-      });
+      // Cleanup existing instance
+      if (artRef.current) {
+          artRef.current.destroy(true);
+          artRef.current = null;
+      }
 
-      art.on('video:ended', () => { if (propsRef.current.onNext) propsRef.current.onNext(); });
-      artRef.current = art;
+      try {
+          const art = new Artplayer({
+              container: containerRef.current,
+              url: propsRef.current.url || '',
+              poster: propsRef.current.poster,
+              autoplay: propsRef.current.autoplay,
+              volume: 0.7,
+              isLive: false,
+              autoMini: false,
+              pip: true,
+              fullscreen: true,
+              fullscreenWeb: true,
+              theme: '#22c55e',
+              lang: 'zh-cn',
+              moreVideoAttr: { crossOrigin: 'anonymous', playsInline: true, 'webkit-playsinline': true } as any,
+              plugins: [
+                  artplayerPluginDanmuku({
+                      danmuku: async () => {
+                          try {
+                              return await fetchDanmaku(propsRef.current.title || '', propsRef.current.episodeIndex || 0);
+                          } catch (e) {
+                              return [];
+                          }
+                      },
+                      speed: 10,
+                      opacity: 1,
+                      fontSize: 25,
+                      color: '#FFFFFF',
+                      mode: 0,
+                      margin: [10, '75%'],
+                      antiOverlap: true,
+                      synchronousPlayback: true,
+                  }),
+              ],
+              controls: [
+                 {
+                    name: 'next-episode',
+                    position: 'left',
+                    index: 15,
+                    html: ICONS.next,
+                    tooltip: '下一集',
+                    style: { cursor: 'pointer', display: 'flex', alignItems: 'center', marginLeft: '2px' },
+                    click: function () { if (propsRef.current.onNext) propsRef.current.onNext(); },
+                 }
+              ],
+              customType: {
+                  m3u8: function (video: HTMLVideoElement, url: string, art: any) {
+                      if (!url) return;
+                      
+                      // Clean up previous HLS instance if switching
+                      if (art.hls) {
+                          art.hls.destroy();
+                          art.hls = null;
+                      }
+
+                      if (Hls.isSupported()) {
+                          const hls = new Hls({ debug: false, enableWorker: true });
+                          
+                          // Robust Error Handling
+                          hls.on(Hls.Events.ERROR, function (event, data) {
+                               if (data.fatal) {
+                                   switch (data.type) {
+                                   case Hls.ErrorTypes.NETWORK_ERROR:
+                                       hls.startLoad();
+                                       break;
+                                   case Hls.ErrorTypes.MEDIA_ERROR:
+                                       hls.recoverMediaError();
+                                       break;
+                                   default:
+                                       hls.destroy();
+                                       art.notice.show = `Playback Error: ${data.type}`;
+                                       break;
+                                   }
+                               }
+                           });
+
+                          // P2P Initialization with Safety Check
+                          try {
+                              if (P2PEngine && (P2PEngine as any).isSupported && (P2PEngine as any).isSupported()) {
+                                  new (P2PEngine as any)(hls, {
+                                      maxBufSize: 1024 * 1024 * 1024,
+                                      p2pEnabled: true,
+                                  });
+                              }
+                          } catch (p2pErr) {
+                              console.warn("P2P Init Failed:", p2pErr);
+                          }
+                          
+                          hls.loadSource(url);
+                          hls.attachMedia(video);
+                          art.hls = hls;
+                          
+                          // Hook into destroy event
+                          art.on('destroy', () => {
+                              if (art.hls) {
+                                  art.hls.destroy();
+                                  art.hls = null;
+                              }
+                          });
+                      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                          video.src = url;
+                      } else {
+                          art.notice.show = 'Unsupported playback format: m3u8';
+                      }
+                  }
+              },
+          });
+
+          art.on('video:ended', () => { if (propsRef.current.onNext) propsRef.current.onNext(); });
+          artRef.current = art;
+      } catch (e) {
+          console.error("Artplayer init error:", e);
+      }
 
       return () => {
           if (artRef.current) {
@@ -149,8 +203,10 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
       const art = artRef.current;
       if (art && url && url !== art.url) {
           art.switchUrl(url).then(() => {
-              if (art.plugins.artplayerPluginDanmuku) (art.plugins.artplayerPluginDanmuku as any).load();
-          });
+              if (art.plugins.artplayerPluginDanmuku) {
+                  (art.plugins.artplayerPluginDanmuku as any).load();
+              }
+          }).catch(() => {});
       }
   }, [url]);
 
