@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { VodSource } from '../types';
-import { getVodSources, addVodSource, deleteVodSource, resetVodSources, saveVodSources, initVodSources, clearAppCache } from '../services/vodService';
+import { getVodSources, addVodSource, deleteVodSource, resetVodSources, saveVodSources, initVodSources } from '../services/vodService';
 
 interface SettingsModalProps {
     isOpen: boolean;
@@ -22,13 +22,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
 
     useEffect(() => {
         if (isOpen) {
+            // Force sync from cloud when opening settings
             const syncAndLoad = async () => {
                 setIsLoading(true);
-                await initVodSources(); 
-                setSources(getVodSources());
+                await initVodSources(); // Pull latest from Supabase
+                setSources(getVodSources()); // Read updated local storage
                 setIsLoading(false);
             };
             syncAndLoad();
+
+            // Reset auth state on close/open if desired, or keep session
+            // For now, simple session reset
             if (!isAuthenticated) {
                 setPassword('');
                 setError('');
@@ -50,10 +54,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     const handleAdd = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newName || !newApi) return;
+        
         setIsLoading(true);
+        // Add to cloud and local
         await addVodSource(newName.trim(), newApi.trim());
-        setSources(getVodSources());
+        setSources(getVodSources()); // Refresh list
         setIsLoading(false);
+        
         setNewName('');
         setNewApi('');
         setShowAdd(false);
@@ -72,6 +79,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
         const updated = sources.map(s => s.id === id ? { ...s, active: !s.active } : s);
         setSources(updated);
         saveVodSources(updated);
+        // Note: Toggle currently only syncs active state to local/cloud via toggleVodSource service wrapper
+        // If strict cloud sync for 'active' status is needed, update service similarly
     };
 
     const handleReset = async () => {
@@ -80,14 +89,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
             const defaults = await resetVodSources();
             setSources(defaults);
             setIsLoading(false);
-        }
-    };
-
-    const onClearCache = () => {
-        if (confirm('这将清除全站缓存数据（包括首页、详情、搜索记录），确定吗？')) {
-            clearAppCache();
-            alert('缓存已清理');
-            window.location.reload();
         }
     };
 
@@ -215,11 +216,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                             )}
                         </div>
 
-                        <div className="p-4 bg-gray-900/80 border-t border-white/10 flex justify-between items-center gap-4">
-                            <div className="flex items-center gap-4">
-                                <button onClick={handleReset} className="text-xs text-gray-500 hover:text-red-400 underline">恢复默认配置</button>
-                                <button onClick={onClearCache} className="text-xs text-gray-500 hover:text-brand underline">清理全站缓存</button>
-                            </div>
+                        <div className="p-4 bg-gray-900/80 border-t border-white/10 flex justify-between items-center">
+                            <button onClick={handleReset} className="text-xs text-gray-500 hover:text-red-400 underline">恢复默认配置</button>
                             <button onClick={onClose} className="bg-white/10 hover:bg-white/20 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors">
                                 关闭
                             </button>

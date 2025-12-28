@@ -1,58 +1,28 @@
-
-const CACHE_VERSION = 'v24';
-const CACHE_NAMES = {
-  static: `static-${CACHE_VERSION}`,
-  images: `images-${CACHE_VERSION}`,
-  api: `api-${CACHE_VERSION}`,
-  video: `video-${CACHE_VERSION}`
-};
-
-const OFFLINE_URL = '/index.html';
+const CACHE_NAME = 'cinestream-v1';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/favicon.svg',
-  '/manifest.json'
+  '/favicon.svg'
 ];
 
-// Domains for long-term asset caching
-const ASSET_DOMAINS = [
-  'aistudiocdn.com',
-  'cdn.tailwindcss.com',
-  'images.weserv.nl',
-  'doubanio.com'
-];
-
-/**
- * Utility to limit cache size
- */
-const limitCacheSize = async (cacheName, maxItems) => {
-  const cache = await caches.open(cacheName);
-  const keys = await cache.keys();
-  if (keys.length > maxItems) {
-    await cache.delete(keys[0]);
-    await limitCacheSize(cacheName, maxItems);
-  }
-};
-
+// Install Event: Cache core static assets
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAMES.static).then((cache) => {
-      console.log('[PWA] Pre-caching static core');
+    caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(STATIC_ASSETS);
     })
   );
   self.skipWaiting();
 });
 
+// Activate Event: Clean up old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
+    caches.keys().then((cacheNames) => {
       return Promise.all(
-        keys.map((key) => {
-          if (!Object.values(CACHE_NAMES).includes(key)) {
-            console.log('[PWA] Purging obsolete cache:', key);
-            return caches.delete(key);
+        cacheNames.map((name) => {
+          if (name !== CACHE_NAME) {
+            return caches.delete(name);
           }
         })
       );
@@ -61,104 +31,70 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-const isIgnored = (url) => {
-  return (
-    url.includes('googleads') ||
-    url.includes('doubleclick') ||
-    url.includes('/match') ||
-    url.includes('api/v2/comment')
-  );
-};
+// Helper: Determine request type
+const isVideo = (url) => url.endsWith('.ts') || url.includes('.m3u8') || url.includes('video');
+const isCDN = (url) => url.includes('aistudiocdn.com') || url.includes('cdn.tailwindcss.com');
+const isAPI = (url) => url.includes('api.php') || url.includes('douban.com') || url.includes('daili.laidd.de5.net');
 
+// Fetch Event
 self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  const url = new URL(request.url);
+  const url = event.request.url;
 
-  if (request.method !== 'GET' || isIgnored(url.href)) return;
+  // 1. IGNORE Video Streams (Network Only)
+  // We don't want to cache gigabytes of video segments
+  if (isVideo(url)) {
+    return; 
+  }
 
-  // 1. Navigation Strategy: Network-First with Offline Fallback
-  if (request.mode === 'navigate') {
+  // 2. Navigation Requests (HTML) -> Network First, Fallback to Cache (App Shell)
+  if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => caches.match(OFFLINE_URL))
+      fetch(event.request)
+        .catch(() => {
+          return caches.match('/index.html');
+        })
     );
     return;
   }
 
-  // 2. Video Data Strategy: Cache Playlist Metadata and limited Segments
-  // Helps with "Resume playback" and smoothing out jittery connections
-  if (url.pathname.endsWith('.m3u8') || url.pathname.endsWith('.ts')) {
+  // 3. CDN & Static Assets -> Stale-While-Revalidate
+  // Serve from cache immediately, then update cache in background
+  if (isCDN(url) || url.match(/\.(js|css|png|jpg|jpeg|svg|ico)$/)) {
     event.respondWith(
-      caches.match(request).then((cached) => {
-        const networkFetch = fetch(request).then((response) => {
-          if (response && response.status === 200) {
-            const copy = response.clone();
-            caches.open(CACHE_NAMES.video).then((cache) => {
-              cache.put(request, copy);
-              // Limit segment cache to roughly 100 segments to prevent storage bloat
-              if (url.pathname.endsWith('.ts')) {
-                limitCacheSize(CACHE_NAMES.video, 100);
-              }
-            });
+      caches.match(event.request).then((cachedResponse) => {
+        const fetchPromise = fetch(event.request).then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic' || networkResponse.type === 'cors' || networkResponse.type === 'opaque') {
+             const responseClone = networkResponse.clone();
+             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
           }
-          return response;
-        }).catch(() => cached);
-        return cached || networkFetch;
+          return networkResponse;
+        }).catch(e => console.log('CDN fetch failed', e));
+
+        return cachedResponse || fetchPromise;
       })
     );
     return;
   }
 
-  // 3. Image Strategy: Cache-First
-  const isImage = ASSET_DOMAINS.some(d => url.hostname.includes(d)) || 
-                  url.pathname.match(/\.(png|jpg|jpeg|webp|svg|ico)$/);
-  if (isImage) {
+  // 4. API Requests -> Network First, Fallback to Cache
+  // Try to get fresh data, if offline, show whatever we have
+  if (isAPI(url)) {
     event.respondWith(
-      caches.match(request).then((cached) => {
-        if (cached) return cached;
-        return fetch(request).then((response) => {
-          if (response && response.status === 200) {
-            const copy = response.clone();
-            caches.open(CACHE_NAMES.images).then((cache) => {
-              cache.put(request, copy);
-              limitCacheSize(CACHE_NAMES.images, 200);
-            });
-          }
-          return response;
-        });
-      })
-    );
-    return;
-  }
-
-  // 4. API Strategy: Stale-While-Revalidate
-  // Caches movie lists and details so they appear instantly on re-visit
-  if (url.searchParams.has('ac') || url.hostname.includes('douban.com')) {
-    event.respondWith(
-      caches.open(CACHE_NAMES.api).then((cache) => {
-        return cache.match(request).then((cached) => {
-          const networkFetch = fetch(request).then((response) => {
-            if (response && response.status === 200) {
-              cache.put(request, response.clone());
-            }
-            return response;
-          }).catch(() => cached);
-          return cached || networkFetch;
-        });
-      })
-    );
-    return;
-  }
-
-  // 5. Default Strategy: Network with Cache Fallback
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      return fetch(request).then((response) => {
+      fetch(event.request).then((response) => {
         if (response && response.status === 200) {
-          const copy = response.clone();
-          caches.open(CACHE_NAMES.static).then((cache) => cache.put(request, copy));
+          const responseClone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
         }
         return response;
-      }).catch(() => cached);
-    })
+      }).catch(() => {
+        return caches.match(event.request);
+      })
+    );
+    return;
+  }
+
+  // 5. Default -> Network First
+  event.respondWith(
+    fetch(event.request).catch(() => caches.match(event.request))
   );
 });

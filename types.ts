@@ -1,4 +1,5 @@
 
+
 export interface VodItem {
   vod_id: number | string;
   vod_name: string;
@@ -9,18 +10,11 @@ export interface VodItem {
   vod_play_from?: string;
   vod_pic: string;
   vod_year?: string;
-  vod_score?: string;
+  vod_score?: string; // Unified score field
   source?: 'douban' | 'cms';
-  api_url?: string;
-  vod_actor?: string;
-  vod_director?: string;
-}
-
-export interface ReviewItem {
-  user: string;
-  rating?: string;
-  content: string;
-  time?: string;
+  api_url?: string; // The API source where this item was found
+  vod_actor?: string; // Added for search sorting
+  vod_director?: string; // Added for search sorting
 }
 
 export interface HistoryItem extends VodItem {
@@ -59,22 +53,21 @@ export interface PersonDetail {
 export interface VodDetail extends VodItem {
   vod_actor: string;
   vod_director: string;
-  vod_writer?: string;
-  vod_pubdate?: string;
-  vod_episode_count?: string;
-  vod_duration?: string;
-  vod_alias?: string;
-  vod_imdb?: string;
+  vod_writer?: string;      // 编剧
+  vod_pubdate?: string;     // 首播
+  vod_episode_count?: string; // 总集数
+  vod_duration?: string;    // 单集片长
+  vod_alias?: string;       // 又名
+  vod_imdb?: string;        // IMDb
   vod_content: string;
   vod_area: string;
   vod_lang: string;
   vod_year: string;
   vod_play_url: string;
   vod_douban_score?: string;
-  vod_douban_id?: string;
+  vod_douban_id?: string;   // Douban ID
   vod_recs?: RecommendationItem[];
   vod_actors_extended?: ActorItem[];
-  vod_reviews?: ReviewItem[];
 }
 
 export interface ApiResponse {

@@ -1,33 +1,29 @@
 {
   "name": "CineStream AI",
   "short_name": "CineStream",
-  "description": "智能 AI 驱动的高清影视聚合平台",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#020617",
-  "theme_color": "#22c55e",
-  "orientation": "portrait-primary",
+  "theme_color": "#020617",
+  "orientation": "any",
+  "description": "A high-definition video streaming platform with intelligent P2P acceleration and Gemini AI integration.",
   "icons": [
     {
       "src": "/favicon.svg",
-      "sizes": "32x32 48x48 72x72 96x96 128x128 256x256 512x512",
       "type": "image/svg+xml",
-      "purpose": "any"
+      "sizes": "any"
     },
     {
       "src": "/favicon.svg",
-      "sizes": "512x512",
       "type": "image/svg+xml",
-      "purpose": "maskable"
-    }
-  ],
-  "categories": ["entertainment", "video"],
-  "shortcuts": [
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
     {
-      "name": "搜索影片",
-      "short_name": "搜索",
-      "url": "/sousuo",
-      "icons": [{ "src": "/favicon.svg", "sizes": "192x192" }]
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "any maskable"
     }
   ]
 }

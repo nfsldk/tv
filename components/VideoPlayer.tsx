@@ -1,9 +1,9 @@
 
-import React, { useEffect, useRef, forwardRef, useImperativeHandle, useState } from 'react';
+import React, { useEffect, useRef, forwardRef, useImperativeHandle, useMemo } from 'react';
 import Artplayer from 'artplayer';
 import artplayerPluginDanmuku from 'artplayer-plugin-danmuku';
 import Hls from 'hls.js';
-import { fetchDanmaku } from '../services/vodService';
+import P2PEngine from 'swarmcloud-hls';
 
 interface VideoPlayerProps {
   url: string;
@@ -18,175 +18,480 @@ interface VideoPlayerProps {
   className?: string;
 }
 
+// Icons for settings
 const ICONS = {
     skipStart: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff" width="22" height="22"><path d="M5 4h2v16H5V4zm4 1v14l11-7L9 5z"/></svg>',
     skipEnd: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff" width="22" height="22"><path d="M5 5l11 7-11 7V5zm12-1h2v16h-2V4z"/></svg>',
+    danmaku: '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>',
     next: '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>',
-    ad: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path fill-rule="evenodd" d="M9.401 3.003c1.155-2 4.043-2 5.197 0l7.355 12.748c1.154 2-.29 4.5-2.599 4.5H4.645c-2.309 0-3.752-2.5-2.598-4.5L9.4 3.003zM12 8.25a.75.75 0 01.75.75v3.75a.75.75 0 01-1.5 0V9a.75.75 0 01.75-.75zm0 8.25a.75.75 0 100-1.5.75.75 0 000 1.5z" clip-rule="evenodd" /></svg>'
 };
 
 const SKIP_OPTIONS = [
-    { html: '关闭', value: 0 }, 
-    { html: '15秒', value: 15 },
-    { html: '30秒', value: 30 }, 
-    { html: '45秒', value: 45 }, 
-    { html: '60秒', value: 60 }, 
-    { html: '90秒', value: 90 }, 
-    { html: '120秒', value: 120 }
+    { html: '关闭', value: 0 },
+    { html: '30秒', value: 30 },
+    { html: '45秒', value: 45 },
+    { html: '60秒', value: 60 },
+    { html: '90秒', value: 90 },
+    { html: '120秒', value: 120 },
+    { html: '150秒', value: 150 },
+    { html: '180秒', value: 180 },
 ];
 
+const AD_PATTERNS = [
+    'googleads', 'doubleclick', '/ad/', 'ad_', '.m3u8_ad', 
+    'advertisement', 'ignore=', 'guanggao', 'hecheng', 
+    '666666', '555555', '999999', 'hl_ad', 'm3u8_ad', 
+    '/tp/ad', 'cs.html', '111111', '222222', '333333', 
+    '444444', '777777', '888888', '000000', 'yibo', 'daohang',
+    'aybc', 'qq2', 'hls_ad', 'm3u8_a', '989898', '777999', 
+    'ts_ad', 'ad.ts', 'ad_0', 'ad_1', 'ad_2', 'xiaoshuo',
+    'wangzhuan', 'gif', '.mp4'
+];
+
+function filterAdsFromM3U8(m3u8Content: string): string {
+    if (!m3u8Content) return '';
+    const lines = m3u8Content.split('\n');
+    const filteredLines: string[] = [];
+    let inAdBlock = false;
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.includes('EXT-X-CUE-OUT') || line.includes('SCTE35') || (line.includes('DATERANGE') && line.includes('SCTE35'))) { 
+            inAdBlock = true; 
+            continue; 
+        }
+        if (line.includes('EXT-X-CUE-IN')) { 
+            inAdBlock = false; 
+            continue; 
+        }
+        if (line.includes('EXT-X-DISCONTINUITY')) {
+            continue;
+        }
+        if (inAdBlock) continue;
+        if (line && !line.startsWith('#')) {
+             const lowerUrl = line.toLowerCase();
+             if (AD_PATTERNS.some(p => lowerUrl.includes(p))) {
+                 if (filteredLines.length > 0 && filteredLines[filteredLines.length - 1].includes('#EXTINF')) {
+                     filteredLines.pop();
+                 }
+                 continue;
+             }
+        }
+        filteredLines.push(lines[i]);
+    }
+    return filteredLines.join('\n');
+}
+
+// ================= API Configuration =================
+const DANMAKU_API_BASE = 'https://dm1.laidd.de5.net/5573108';
+const API_MATCH = `${DANMAKU_API_BASE}/api/v2/match`;
+const API_SEARCH_EPISODES = `${DANMAKU_API_BASE}/api/v2/search/episodes`;
+const API_COMMENT = `${DANMAKU_API_BASE}/api/v2/comment`;
+
+// GLOBAL CUSTOM PROXY
+const GLOBAL_PROXY = 'https://daili.laidd.de5.net/?url=';
+
+// Memory Cache to speed up switching episodes in same series
+const DANMAKU_CACHE = new Map<string, number>(); // title_epIndex -> episodeId
+
+// Robust Fetch: Tries direct first, then proxy
+const robustFetch = async (url: string, forceProxy = false) => {
+    const headers = { 'Accept': 'application/json' };
+    
+    // 1. Try Direct Fetch (Fastest) if not forced to proxy
+    if (!forceProxy) {
+        try {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), 3000); // 3s fast timeout
+            const response = await fetch(url, { headers, signal: controller.signal });
+            clearTimeout(id);
+            if (response.ok) return response;
+        } catch (e) {
+            // Direct failed, fall through to proxy
+        }
+    }
+
+    // 2. Fallback to Proxy
+    const proxyUrl = `${GLOBAL_PROXY}${encodeURIComponent(url)}`;
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), 15000);
+    try {
+        const response = await fetch(proxyUrl, { headers, signal: controller.signal });
+        clearTimeout(id);
+        if (!response.ok) throw new Error(`Proxy Fetch failed: ${response.status}`);
+        return response;
+    } catch (error) {
+        clearTimeout(id);
+        throw error;
+    }
+};
+
+const transformDanmaku = (comments: any[]) => {
+    if (!Array.isArray(comments)) return [];
+    
+    return comments.map((item: any) => {
+        if (!item || typeof item !== 'object') return null;
+
+        const pStr = String(item.p || '');
+        const parts = pStr.split(',');
+        
+        const time = parseFloat(parts[0]);
+        if (isNaN(time)) return null;
+
+        const modeId = parseInt(parts[1]) || 1;
+        let mode = 0; // 0: scroll, 1: top, 2: bottom
+        if (modeId === 4) mode = 2; // Dandan Bottom -> Artplayer Bottom
+        else if (modeId === 5) mode = 1; // Dandan Top -> Artplayer Top
+        
+        const colorInt = parseInt(parts[2]);
+        let color = '#FFFFFF';
+        if (!isNaN(colorInt)) {
+            try {
+                const hex = (colorInt & 0xFFFFFF).toString(16).toUpperCase().padStart(6, '0');
+                color = `#${hex}`;
+            } catch (e) { /* fallback to white */ }
+        }
+
+        const text = String(item.m || item.message || item.text || '');
+        if (!text) return null;
+        
+        return {
+            text: text,
+            time: time,
+            mode: mode as any, 
+            color: color,
+            border: false, 
+            style: {
+                textShadow: 'rgb(0, 0, 0) 1px 0px 1px, rgb(0, 0, 0) 0px 1px 1px, rgb(0, 0, 0) 0px -1px 1px, rgb(0, 0, 0) -1px 0px 1px',
+                fontFamily: 'SimHei, "Microsoft YaHei", sans-serif',
+                fontWeight: 'bold',
+            },
+        };
+    }).filter((item): item is NonNullable<typeof item> => item !== null);
+};
+
+const fetchComments = async (episodeId: string | number) => {
+    try {
+        // withRelated=true matches other episodes in the same group/season logic sometimes, ch_convert=1 converts Trad to Simp Chinese
+        const commentUrl = `${API_COMMENT}/${episodeId}?withRelated=true&ch_convert=1`;
+        const res = await robustFetch(commentUrl, false);
+        const data = await res.json();
+        const rawComments = data.comments || data;
+        return transformDanmaku(rawComments);
+    } catch (e) {
+        console.warn('Failed to fetch comments', e);
+        return [];
+    }
+};
+
+// Smarter Title Cleaning: Preserves Season/Part info, removes Technical tags
+const getSearchTerm = (title: string): string => {
+    return title
+        .replace(/[\(\[\{【](?!Part|Vol|Ep|Season|第).+?[\)\]\}】]/gi, '') // Remove content inside brackets unless it looks like Season info
+        .replace(/(?:4k|1080p|720p|hd|bd|web-dl|hdtv|dvdrip|x264|x265|aac|dd5\.1|国语|粤语|中字|双语|完整版|未删减|电视剧|动漫|综艺|movie|tv|\d{4}年|\d{4})/gi, '')
+        .trim()
+        .replace(/\s+/g, ' '); // Normalize spaces
+};
+
+const fetchDanmaku = async (title: string, episodeIndex: number, videoUrl: string) => {
+    if (!title) return [];
+    
+    // 0. Check Cache
+    const cacheKey = `${title}_${episodeIndex}`;
+    if (DANMAKU_CACHE.has(cacheKey)) {
+        console.log('Danmaku Cache Hit');
+        return await fetchComments(DANMAKU_CACHE.get(cacheKey)!);
+    }
+
+    const cleanTitle = getSearchTerm(title);
+    const episodeNum = episodeIndex + 1;
+    const epStr = episodeNum < 10 ? `0${episodeNum}` : `${episodeNum}`;
+    
+    console.log(`Searching Danmaku for: [${cleanTitle}] Ep: ${episodeNum}`);
+
+    let matchedEpisodeId: number | null = null;
+
+    // STRATEGY 1: Match API (Smart Virtual Filename) - Fastest & Most Accurate
+    const virtualFiles = [
+        `[Unknown] ${cleanTitle} - ${epStr}.mp4`,
+        `${cleanTitle} - ${epStr}.mp4`,
+        `${cleanTitle} ${epStr}.mp4`,
+        `${cleanTitle} 第${epStr}集.mp4`,
+        `${cleanTitle} S01E${epStr}.mp4`
+    ];
+
+    if (cleanTitle.includes(' ')) {
+        virtualFiles.push(`[Unknown] ${cleanTitle.replace(/\s+/g, '.')} - ${epStr}.mp4`);
+    }
+
+    for (const fileName of virtualFiles) {
+        try {
+            // hash=0&length=0 allows matching purely by filename
+            const matchUrl = `${API_MATCH}?fileName=${encodeURIComponent(fileName)}&hash=0&length=0`;
+            const matchRes = await robustFetch(matchUrl, false);
+            const matchData = await matchRes.json();
+            
+            if (matchData.isMatched && matchData.matches && matchData.matches.length > 0) {
+                matchedEpisodeId = matchData.matches[0].episodeId;
+                console.log(`Danmaku Matched via filename: ${fileName} -> ID: ${matchedEpisodeId}`);
+                break;
+            }
+        } catch (e) { /* continue */ }
+    }
+
+    // STRATEGY 2: Smart Search Fallback (Fuzzy Title + Episode) - Handles Weird Filenames
+    if (!matchedEpisodeId) {
+        try {
+            console.log('Match failed, trying Smart Search...');
+            const searchUrl = `${API_SEARCH_EPISODES}?anime=${encodeURIComponent(cleanTitle)}&episode=${episodeNum}`;
+            const searchRes = await robustFetch(searchUrl, false);
+            const searchData = await searchRes.json();
+
+            if (searchData.animes && searchData.animes.length > 0) {
+                // Heuristic: The first anime result is usually the most relevant for a specific query
+                const bestAnime = searchData.animes[0];
+                
+                // If API returns episode list, pick the first one (since we filtered by episode param)
+                if (bestAnime.episodes && bestAnime.episodes.length > 0) {
+                    matchedEpisodeId = bestAnime.episodes[0].episodeId;
+                    console.log(`Danmaku Matched via Search: ${bestAnime.animeTitle} Ep:${bestAnime.episodes[0].episodeTitle}`);
+                }
+            }
+        } catch (e) {
+            console.warn('Smart Search failed', e);
+        }
+    }
+
+    if (matchedEpisodeId) {
+        DANMAKU_CACHE.set(cacheKey, matchedEpisodeId);
+        return await fetchComments(matchedEpisodeId);
+    }
+    
+    return [];
+};
+
+const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s < 10 ? '0' + s : s}`;
+};
+
 const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
-  const { url, poster, autoplay = true, title, episodeIndex = 0, vodId, className } = props;
+  const { url, poster, autoplay = true, onEnded, onNext, title, episodeIndex = 0, doubanId, vodId, className } = props;
   const artRef = useRef<Artplayer | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const propsRef = useRef(props);
-  const [showSkipAd, setShowSkipAd] = useState(false);
+  
+  const latestOnEnded = useRef(onEnded);
+  const latestOnNext = useRef(onNext);
 
-  useEffect(() => { propsRef.current = props; }, [props]);
-
-  useImperativeHandle(ref, () => ({ getInstance: () => artRef.current }));
-
-  const handleSkipAd = () => {
-    if (artRef.current) {
-        const skipHead = parseInt(localStorage.getItem('art_skip_head') || '0');
-        const jumpTo = Math.max(60, skipHead);
-        artRef.current.seek = jumpTo;
-        artRef.current.notice.show = '已为您成功跳过插播广告';
-        setShowSkipAd(false);
-    }
-  };
-
-  /**
-   * 异步分批载入弹幕，防止大数据量导致的卡顿
-   */
-  const loadDanmakuAsync = async (art: Artplayer, keyword: string, ep: number) => {
-      const danmaku = await fetchDanmaku(keyword, ep);
-      if (!danmaku || danmaku.length === 0) return;
-
-      const plugin = (art.plugins as any).artplayerPluginDanmuku;
-      if (!plugin) return;
-
-      // 分批注入逻辑
-      const BATCH_SIZE = 1500;
-      let offset = 0;
-      
-      const injectBatch = () => {
-          const batch = danmaku.slice(offset, offset + BATCH_SIZE);
-          if (batch.length > 0) {
-              plugin.config({ danmuku: [...(plugin.option.danmuku || []), ...batch] });
-              offset += BATCH_SIZE;
-              if (offset < danmaku.length) {
-                  // 使用 requestIdleCallback 或 setTimeout 将任务分解
-                  if (window.requestIdleCallback) {
-                      window.requestIdleCallback(injectBatch);
-                  } else {
-                      setTimeout(injectBatch, 50);
-                  }
-              } else {
-                  console.log(`弹幕加载完毕: 共 ${danmaku.length} 条`);
-              }
-          }
-      };
-
-      injectBatch();
-  };
+  // Generate a progress key that is consistent across different sources for the same content
+  const progressKey = useMemo(() => {
+      return (vodId && episodeIndex !== undefined) 
+        ? `cine_progress_${vodId}_${episodeIndex}` 
+        : `cine_progress_${url}`;
+  }, [vodId, episodeIndex, url]);
 
   useEffect(() => {
-      const art = artRef.current;
-      if (art && url && url !== art.url) {
-          art.switchUrl(url).then(() => {
-              const progressKey = (vodId && episodeIndex !== undefined) ? `cine_progress_${vodId}_${episodeIndex}` : `cine_progress_${url}`;
-              const savedTime = parseFloat(localStorage.getItem(progressKey) || '0');
-              if (savedTime > 5) art.seek = savedTime;
-              
-              // 切换视频后重新加载弹幕
-              if (title) loadDanmakuAsync(art, title, episodeIndex);
-          });
+    latestOnEnded.current = onEnded;
+    latestOnNext.current = onNext;
+  }, [onEnded, onNext]);
+
+  useImperativeHandle(ref, () => ({
+      getInstance: () => artRef.current
+  }));
+
+  // === Custom Auto Mini (PiP) Logic for Mobile Optimization ===
+  useEffect(() => {
+      if (!containerRef.current) return;
+
+      const observer = new IntersectionObserver((entries) => {
+          const entry = entries[0];
+          const art = artRef.current;
+          if (!art) return;
+
+          // If container is visible (at least 30%)
+          if (entry.isIntersecting) {
+              // Automatically return to player if in mini mode
+              if (art.mini) {
+                  art.mini = false;
+              }
+          } 
+          // If container is hidden (scrolled away)
+          else {
+              // Automatically go to mini mode if playing and not already in another mode
+              if (art.playing && !art.pip && !art.fullscreen && !art.mini) {
+                  art.mini = true;
+              }
+          }
+      }, {
+          threshold: 0.3, // Trigger when 30% of the player is visible/hidden
+      });
+
+      observer.observe(containerRef.current);
+
+      return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+      const observer = new ResizeObserver(() => {
+          if (artRef.current && typeof (artRef.current as any).resize === 'function') {
+              (artRef.current as any).resize();
+          }
+      });
+      if (containerRef.current) {
+          observer.observe(containerRef.current);
       }
-  }, [url, episodeIndex, vodId]);
+      return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
       if (!containerRef.current || !url) return;
+      
+      // Force cleanup of existing instance
+      if (artRef.current && artRef.current.destroy) {
+           try {
+              if (artRef.current.mini) artRef.current.mini = false;
+              if (artRef.current.pip) artRef.current.pip = false;
+          } catch(e){}
+          artRef.current.destroy(true);
+      }
 
-      let skipHead = parseInt(localStorage.getItem('art_skip_head') || '0');
-      let skipTail = parseInt(localStorage.getItem('art_skip_tail') || '0');
-      let autoSkipAd = localStorage.getItem('art_auto_skip_ad') === 'true';
+      let hasSkippedHead = false;
+      let isSkippingTail = false;
+
+      const DEFAULT_SKIP_HEAD = 90;
+      const DEFAULT_SKIP_TAIL = 120;
+      const autoNext = true; 
+
+      let skipHead = parseInt(localStorage.getItem('art_skip_head') || String(DEFAULT_SKIP_HEAD));
+      let skipTail = parseInt(localStorage.getItem('art_skip_tail') || String(DEFAULT_SKIP_TAIL));
+
+      let danmakuEnabled = true;
 
       const art = new Artplayer({
-          container: containerRef.current!, 
-          url: url, 
-          poster: poster, 
-          autoplay: autoplay, 
+          container: containerRef.current,
+          url: url,
+          poster: poster,
+          autoplay: autoplay,
           volume: 0.7,
-          theme: '#22c55e', 
-          lang: 'zh-cn', 
-          lock: true, 
-          fastForward: true, 
-          autoOrientation: true,
-          fullscreen: true, 
-          fullscreenWeb: true, 
-          setting: true, 
+          isLive: false,
+          muted: false,
+          autoMini: false, // DISABLED BUILT-IN: Use custom IntersectionObserver for better mobile control
+          screenshot: false, 
+          setting: true,
           pip: true,
-          moreVideoAttr: { crossOrigin: 'anonymous', playsInline: true, 'webkit-playsinline': true } as any,
+          fullscreen: true,
+          fullscreenWeb: true,
+          
+          flip: false,
+          playbackRate: true,
+          aspectRatio: false,
+
+          airplay: true,
+          theme: '#22c55e',
+          lang: 'zh-cn',
+          lock: true,
+          fastForward: true,
+          autoOrientation: true,
+          moreVideoAttr: {
+              crossOrigin: 'anonymous',
+              playsInline: true,
+              'webkit-playsinline': true,
+          } as any,
           plugins: [
               artplayerPluginDanmuku({
-                  danmuku: [], speed: 10, opacity: 0.8, fontSize: 24, visible: true, emitter: false,
+                  danmuku: async () => {
+                      try {
+                          const data = await fetchDanmaku(title || '', episodeIndex, url);
+                          if (artRef.current) {
+                               if (data.length > 0) {
+                                   artRef.current.notice.show = `弹幕加载成功: ${data.length}条`;
+                               } else {
+                                   // artRef.current.notice.show = '未找到匹配弹幕';
+                               }
+                          }
+                          return data;
+                      } catch (e) {
+                          console.error("Danmaku error", e);
+                          return [];
+                      }
+                  },
+                  speed: 10,
+                  opacity: 1, 
+                  fontSize: 25,
+                  color: '#FFFFFF',
+                  mode: 0,
+                  margin: [10, '75%'],
+                  antiOverlap: true,
+                  synchronousPlayback: true,
+                  visible: danmakuEnabled, 
+                  emitter: false,
               }),
-          ],
+          ].filter(Boolean),
           controls: [
-             { 
-                 name: 'next-episode', 
-                 position: 'left', 
-                 index: 15, 
-                 html: ICONS.next, 
-                 tooltip: '下一集', 
-                 click: function () { if (propsRef.current.onNext) propsRef.current.onNext(); } 
-             },
+             {
+                name: 'next-episode',
+                position: 'left',
+                index: 15,
+                html: ICONS.next,
+                tooltip: '下一集',
+                style: { cursor: 'pointer', display: 'flex', alignItems: 'center', marginLeft: '2px' },
+                click: function (item: any) { if (latestOnNext.current) latestOnNext.current(); },
+             }
           ],
           settings: [
               {
-                  html: '自动跳过插播广告',
-                  width: 200,
-                  tooltip: autoSkipAd ? '开启' : '关闭',
-                  switch: autoSkipAd,
-                  onSelect: function(item: any) {
-                      autoSkipAd = !item.switch;
-                      localStorage.setItem('art_auto_skip_ad', String(autoSkipAd));
-                      art.notice.show = `自动跳过广告已${autoSkipAd ? '开启' : '关闭'}`;
-                      return autoSkipAd;
-                  }
+                  html: '弹幕状态',
+                  icon: ICONS.danmaku,
+                  tooltip: danmakuEnabled ? '开启' : '关闭',
+                  switch: danmakuEnabled,
+                  onSwitch: function (item: any) {
+                      const nextState = !item.switch;
+                      item.tooltip = nextState ? '开启' : '关闭';
+                      
+                      const plugin = (this.plugins as any).artplayerPluginDanmuku;
+                      if (plugin) {
+                          if (nextState) plugin.show();
+                          else plugin.hide();
+                      }
+                      
+                      if (this.template.$danmuku) {
+                          this.template.$danmuku.style.display = nextState ? 'block' : 'none';
+                      }
+
+                      this.notice.show = nextState ? '弹幕已开启' : '弹幕已关闭';
+                      return nextState;
+                  },
               },
               {
                   html: '跳过片头',
-                  width: 200,
-                  tooltip: skipHead + '秒',
+                  width: 250,
+                  tooltip: skipHead > 0 ? skipHead+'秒' : '关闭',
                   icon: ICONS.skipStart,
                   selector: SKIP_OPTIONS.map(o => ({
                       default: o.value === skipHead,
                       html: o.html,
-                      value: o.value
+                      url: o.value
                   })),
                   onSelect: function(item: any) {
-                      skipHead = item.value;
+                      skipHead = item.url;
                       localStorage.setItem('art_skip_head', String(skipHead));
-                      art.notice.show = `片头跳过已设为 ${item.html}`;
                       return item.html;
                   }
               },
               {
                   html: '跳过片尾',
-                  width: 200,
-                  tooltip: skipTail + '秒',
+                  width: 250,
+                  tooltip: skipTail > 0 ? skipTail+'秒' : '关闭',
                   icon: ICONS.skipEnd,
                   selector: SKIP_OPTIONS.map(o => ({
                       default: o.value === skipTail,
                       html: o.html,
-                      value: o.value
+                      url: o.value
                   })),
                   onSelect: function(item: any) {
-                      skipTail = item.value;
+                      skipTail = item.url;
                       localStorage.setItem('art_skip_tail', String(skipTail));
-                      art.notice.show = `片尾跳过已设为 ${item.html}`;
                       return item.html;
                   }
               }
@@ -194,84 +499,144 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
           customType: {
               m3u8: function (video: HTMLVideoElement, url: string, art: any) {
                   if (Hls.isSupported()) {
-                      const hls = new Hls();
-                      hls.loadSource(url); hls.attachMedia(video);
-                      art.hls = hls; art.on('destroy', () => hls.destroy());
-                  } else if (video.canPlayType('application/vnd.apple.mpegurl')) { video.src = url; }
+                      class CustomLoader extends Hls.DefaultConfig.loader {
+                          constructor(config: any) { super(config); }
+                          load(context: any, config: any, callbacks: any) {
+                              if (context.type === 'manifest' || context.type === 'level') {
+                                  const onSuccess = callbacks.onSuccess;
+                                  callbacks.onSuccess = function (response: any, stats: any, ctx: any) {
+                                      if (response.data && typeof response.data === 'string') {
+                                          try { response.data = filterAdsFromM3U8(response.data); } catch (e) {}
+                                      }
+                                      return onSuccess(response, stats, ctx, null);
+                                  };
+                              }
+                              super.load(context, config, callbacks);
+                          }
+                      }
+
+                      const hls = new Hls({
+                          debug: false,
+                          enableWorker: true,
+                          maxBufferLength: 60,
+                          maxMaxBufferLength: 600,
+                          startLevel: -1,
+                          autoStartLoad: true,
+                          pLoader: CustomLoader as any,
+                      });
+
+                      if (P2PEngine && (P2PEngine as any).isSupported()) {
+                          try {
+                            new (P2PEngine as any)(hls, {
+                                maxBufSize: 120 * 1000 * 1000,
+                                p2pEnabled: true,
+                            }).on('stats', (stats: any) => {
+                                // stats collection
+                            });
+                          } catch (e) {}
+                      }
+
+                      hls.loadSource(url);
+                      hls.attachMedia(video);
+                      art.hls = hls;
+                      art.on('destroy', () => hls.destroy());
+                  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                      video.src = url;
+                  } else {
+                      art.notice.show = 'Unsupported playback format: m3u8';
+                  }
               }
           },
       });
-
+      
       art.on('ready', () => {
-          const progressKey = (propsRef.current.vodId && propsRef.current.episodeIndex !== undefined) ? `cine_progress_${propsRef.current.vodId}_${propsRef.current.episodeIndex}` : `cine_progress_${propsRef.current.url}`;
-          const savedTime = parseFloat(localStorage.getItem(progressKey) || '0');
-          if (savedTime > 5 && savedTime < art.duration - 5) {
-              art.seek = savedTime;
-              art.notice.show = `[自动续播] 已回到上次观看位置`;
-          }
-          
-          // 首次就绪载入弹幕
-          if (title) loadDanmakuAsync(art, title, episodeIndex);
-      });
-
-      art.on('video:timeupdate', () => {
-          const progressKey = (propsRef.current.vodId && propsRef.current.episodeIndex !== undefined) ? `cine_progress_${propsRef.current.vodId}_${propsRef.current.episodeIndex}` : `cine_progress_${propsRef.current.url}`;
-          if (art.currentTime > 0) localStorage.setItem(progressKey, String(art.currentTime));
-
-          if (art.currentTime < 60 && art.currentTime > 2 && !autoSkipAd) {
-              if (!showSkipAd) setShowSkipAd(true);
-          } else {
-              if (showSkipAd) setShowSkipAd(false);
-          }
-
-          if (autoSkipAd && art.currentTime < 15 && art.duration > 300 && !art.userSeek) {
-              art.seek = 15;
-              art.notice.show = '已为您自动拦截插播广告';
-          }
-
-          if (skipHead > 0 && art.duration > 300 && art.currentTime < skipHead && !art.userSeek) {
-              art.seek = skipHead;
-              art.notice.show = `已自动跳过片头 ${skipHead}s`;
-          }
-
-          if (skipTail > 0 && art.duration > 300 && art.currentTime > 60 && (art.duration - art.currentTime) <= skipTail && !art.userSeek) {
-              if (propsRef.current.onNext) {
-                  art.notice.show = '即将为您播放下一集';
-                  propsRef.current.onNext();
+          // Restore progress from shared key
+          const savedTimeStr = localStorage.getItem(progressKey);
+          if (savedTimeStr) {
+              const savedTime = parseFloat(savedTimeStr);
+              if (!isNaN(savedTime) && savedTime > 5 && savedTime < art.duration - 5) {
+                  art.seek = savedTime;
+                  art.notice.show = `已恢复至 ${formatTime(savedTime)}`;
               }
           }
       });
 
       artRef.current = art;
-      return () => { if (artRef.current) artRef.current.destroy(true); };
-  }, [vodId]);
+
+      art.on('video:timeupdate', function() {
+          if (art.currentTime > 0) {
+              localStorage.setItem(progressKey, String(art.currentTime));
+          }
+          const currentSkipHead = parseInt(localStorage.getItem('art_skip_head') || String(DEFAULT_SKIP_HEAD));
+          const currentSkipTail = parseInt(localStorage.getItem('art_skip_tail') || String(DEFAULT_SKIP_TAIL));
+          
+          if (currentSkipHead > 0 && !hasSkippedHead && art.duration > 300) {
+             if (art.currentTime < currentSkipHead) {
+                art.notice.show = `已跳过片头`;
+                art.seek = currentSkipHead;
+                art.play();
+             }
+             hasSkippedHead = true;
+          }
+
+          if (currentSkipTail > 0 && !isSkippingTail && art.duration > 300) {
+              const rem = art.duration - art.currentTime;
+              if (rem > 0 && rem <= currentSkipTail) {
+                  isSkippingTail = true;
+                  if (autoNext && latestOnNext.current) {
+                      art.notice.show = '即将播放下一集';
+                      setTimeout(() => { if (latestOnNext.current) latestOnNext.current(); }, 1000); 
+                  }
+              }
+          }
+      });
+
+      art.on('seek', () => { isSkippingTail = false; });
+      art.on('restart', () => { isSkippingTail = false; hasSkippedHead = false; });
+      art.on('video:ended', () => {
+         localStorage.removeItem(progressKey);
+         if (autoNext && latestOnNext.current) latestOnNext.current();
+      });
+
+      return () => {
+          if (artRef.current) {
+              // Critical Fix: Save progress exactly before destruction (e.g. source switching)
+              try {
+                  const currentTime = artRef.current.currentTime;
+                  if (currentTime > 0) {
+                       localStorage.setItem(progressKey, String(currentTime));
+                  }
+              } catch(e) {}
+
+              try {
+                  if (artRef.current.mini) artRef.current.mini = false;
+                  if (artRef.current.pip) artRef.current.pip = false;
+                  if (artRef.current.fullscreen) artRef.current.fullscreen = false;
+              } catch (e) {
+                   console.warn("Error cleaning up player modes:", e);
+              }
+              
+              if (artRef.current.destroy) {
+                  artRef.current.destroy(true); // true = remove DOM and clean up events
+                  artRef.current = null;
+              }
+          }
+      };
+  }, [url, autoplay, poster, title, episodeIndex, vodId]); 
 
   return (
-    <div className={`w-full h-full bg-black relative group/player ${className || ''}`}>
-        <style>{`
-            .art-setting-item { font-weight: 900 !important; }
-            .art-notice { background: rgba(34, 197, 94, 0.9) !important; border-radius: 100px !important; box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important; }
-            @keyframes slideInRight {
-                from { transform: translateX(100px); opacity: 0; }
-                to { transform: translateX(0); opacity: 1; }
+      <div className={`w-full aspect-video lg:aspect-auto lg:h-full bg-black group relative z-0 ${className || ''}`}>
+          <style>{`
+            .art-danmuku-control, .art-control-danmuku { display: none !important; }
+            .art-layer-mini { z-index: 100 !important; }
+            @media (max-width: 768px) {
+                .art-controls .art-control { padding: 0 1px !important; }
+                .art-control-volume, .art-control-fullscreenWeb { display: none !important; }
+                .art-time { font-size: 11px !important; padding: 0 4px !important; }
             }
-            .animate-slide-in-right { animation: slideInRight 0.5s cubic-bezier(0.23, 1, 0.32, 1) forwards; }
-        `}</style>
-        
-        <div ref={containerRef} className="w-full h-full" />
-
-        {showSkipAd && (
-            <div className="absolute bottom-24 right-6 z-50 animate-slide-in-right">
-                <button 
-                    onClick={handleSkipAd}
-                    className="flex items-center gap-2 px-6 py-3 bg-black/60 backdrop-blur-2xl border border-white/20 rounded-full text-white font-black text-sm shadow-2xl hover:bg-brand hover:text-black transition-all group/adbtn ring-1 ring-white/10"
-                >
-                    <span dangerouslySetInnerHTML={{ __html: ICONS.ad }} className="text-brand group-hover/adbtn:text-black" />
-                    跳过插播广告
-                </button>
-            </div>
-        )}
-    </div>
+          `}</style>
+          <div ref={containerRef} className="w-full h-full" />
+      </div>
   );
 });
 
