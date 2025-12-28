@@ -1,28 +1,32 @@
-const CACHE_NAME = 'cinestream-v1';
-const STATIC_ASSETS = [
+const CACHE_NAME = 'cinestream-v4';
+const VIDEO_CACHE_NAME = 'cinestream-video-v2';
+const APP_SHELL = [
   '/',
   '/index.html',
-  '/favicon.svg'
+  '/favicon.svg',
+  '/manifest.json'
 ];
 
-// Install Event: Cache core static assets
+// 1. Install: Cache the basic App Shell
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
+      console.log('[SW] Caching App Shell');
+      return cache.addAll(APP_SHELL);
     })
   );
   self.skipWaiting();
 });
 
-// Activate Event: Clean up old caches
+// 2. Activate: Clean up old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
+    caches.keys().then((keys) => {
       return Promise.all(
-        cacheNames.map((name) => {
-          if (name !== CACHE_NAME) {
-            return caches.delete(name);
+        keys.map((key) => {
+          if (key !== CACHE_NAME && key !== VIDEO_CACHE_NAME) {
+            console.log('[SW] Deleting old cache:', key);
+            return caches.delete(key);
           }
         })
       );
@@ -31,70 +35,110 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Helper: Determine request type
-const isVideo = (url) => url.endsWith('.ts') || url.includes('.m3u8') || url.includes('video');
+// Helper: Match asset types
+const isAsset = (url) => url.match(/\.(js|css|png|jpg|jpeg|svg|ico|woff2)$/);
 const isCDN = (url) => url.includes('aistudiocdn.com') || url.includes('cdn.tailwindcss.com');
 const isAPI = (url) => url.includes('api.php') || url.includes('douban.com') || url.includes('daili.laidd.de5.net');
 
-// Fetch Event
+// Video Helpers
+const isVideoPlaylist = (url) => url.includes('.m3u8');
+const isVideoSegment = (url) => url.match(/\.(ts|mp4|m4s|m4a)$/) || url.includes('seg-') || url.includes('video');
+
+// 3. Fetch strategy
 self.addEventListener('fetch', (event) => {
-  const url = event.request.url;
+  const { request } = event;
+  
+  // Ignore range requests for video to avoid cache errors (HLS.js handles ranges internally)
+  if (request.headers.has('range')) return;
 
-  // 1. IGNORE Video Streams (Network Only)
-  // We don't want to cache gigabytes of video segments
-  if (isVideo(url)) {
-    return; 
-  }
-
-  // 2. Navigation Requests (HTML) -> Network First, Fallback to Cache (App Shell)
-  if (event.request.mode === 'navigate') {
+  // --- VIDEO HANDLING ---
+  
+  // A. Video Segments: Cache First (Content is immutable)
+  if (isVideoSegment(request.url)) {
     event.respondWith(
-      fetch(event.request)
-        .catch(() => {
-          return caches.match('/index.html');
-        })
+      caches.open(VIDEO_CACHE_NAME).then((cache) => {
+        return cache.match(request).then((cached) => {
+          if (cached) return cached;
+          return fetch(request).then((response) => {
+            // Cache segment if response is valid (200) or opaque (CORS)
+            // Note: Opaque responses are padded by the browser and can be large.
+            if (response.status === 200 || response.type === 'opaque') {
+              cache.put(request, response.clone());
+            }
+            return response;
+          }).catch(() => null);
+        });
+      })
     );
     return;
   }
 
-  // 3. CDN & Static Assets -> Stale-While-Revalidate
-  // Serve from cache immediately, then update cache in background
-  if (isCDN(url) || url.match(/\.(js|css|png|jpg|jpeg|svg|ico)$/)) {
+  // B. Video Playlists: Network First (Check for updates, fallback to cache)
+  if (isVideoPlaylist(request.url)) {
     event.respondWith(
-      caches.match(event.request).then((cachedResponse) => {
-        const fetchPromise = fetch(event.request).then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic' || networkResponse.type === 'cors' || networkResponse.type === 'opaque') {
-             const responseClone = networkResponse.clone();
-             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const cacheCopy = response.clone();
+            caches.open(VIDEO_CACHE_NAME).then((cache) => cache.put(request, cacheCopy));
           }
-          return networkResponse;
-        }).catch(e => console.log('CDN fetch failed', e));
-
-        return cachedResponse || fetchPromise;
-      })
+          return response;
+        })
+        .catch(() => caches.match(request))
     );
     return;
   }
 
-  // 4. API Requests -> Network First, Fallback to Cache
-  // Try to get fresh data, if offline, show whatever we have
-  if (isAPI(url)) {
+  // --- STANDARD HANDLING ---
+
+  // SPA Navigation: Serve index.html for all sub-routes if network fails
+  if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request).then((response) => {
-        if (response && response.status === 200) {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
-        }
-        return response;
-      }).catch(() => {
-        return caches.match(event.request);
+      fetch(request).catch(() => {
+        return caches.match('/index.html') || caches.match('/');
       })
     );
     return;
   }
 
-  // 5. Default -> Network First
+  // CDN & Static Assets: Stale-While-Revalidate
+  if (isCDN(request.url) || isAsset(request.url)) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        const networked = fetch(request)
+          .then((response) => {
+            if (response.ok || response.type === 'opaque') {
+              const cacheCopy = response.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(request, cacheCopy));
+            }
+            return response;
+          })
+          .catch(() => null);
+
+        return cached || networked;
+      })
+    );
+    return;
+  }
+
+  // API Requests: Network First, Fallback to Cache
+  if (isAPI(request.url)) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const cacheCopy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, cacheCopy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request))
+    );
+    return;
+  }
+
+  // Default: Network First
   event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request))
+    fetch(request).catch(() => caches.match(request))
   );
 });

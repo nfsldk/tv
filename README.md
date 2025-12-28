@@ -1,4 +1,3 @@
-
 # CineStream AI
 
 <div align="center">
@@ -7,7 +6,7 @@
 
 **A Next-Gen Streaming Platform with P2P Acceleration & Gemini AI**
 
-[English Guide](#english-guide) | [中文说明](#chinese-guide)
+[English Guide](#english-guide) | [中文部署教程](#chinese-guide)
 
 </div>
 
@@ -15,49 +14,35 @@
 
 <div id="english-guide"></div>
 
-## 🇬🇧 CineStream AI (English)
+## 🇬🇧 Deployment & Setup Guide
 
-CineStream AI is a modern, high-definition video streaming platform featuring intelligent P2P acceleration, a sleek dark-themed UI, and AI-powered interaction.
+CineStream AI is a modern video streaming platform. To get it running with all features (AI Assistant & Cloud Sync), follow these steps.
 
-### ✨ Features
+### 🚀 1. Fast Deployment
 
--   **High Definition Streaming**: Aggregates multiple high-quality video sources.
--   **Smart P2P Acceleration**: Uses `swarmcloud-hls` to optimize bandwidth and speed.
--   **AI Assistant**: Integrated **Google Gemini AI** for movie recommendations and context-aware chat.
--   **Multi-Source Management**: Add your own Maccms-compatible CMS APIs to expand the library.
--   **Cloud Sync**: Support for **Supabase** to sync resource site configurations across browsers.
--   **Responsive Design**: Fully optimized for mobile, tablet, and desktop.
--   **Smart Danmaku**: Auto-matching Danmaku system via `api/v2/match`.
+#### Option A: Vercel (Recommended)
+1.  **Fork** this repository to your GitHub.
+2.  Import the project in [Vercel](https://vercel.com/).
+3.  Add **Environment Variables**:
+    *   `API_KEY`: Your Google Gemini API Key ([Get it here](https://aistudio.google.com/)).
+    *   `VITE_SUPABASE_URL`: (Optional) Supabase Project URL.
+    *   `VITE_SUPABASE_KEY`: (Optional) Supabase Anon Key.
+4.  Click **Deploy**.
 
-### 🚀 Deployment Tutorial
+#### Option B: Cloudflare Pages
+1.  Create a new project in **Workers & Pages**.
+2.  Connect your Git repo.
+3.  **Build Settings**: Framework `Vite`, Command `npm run build`, Output `dist`.
+4.  Add the same **Environment Variables** (Plain text).
 
-#### 1. Vercel (Recommended)
+---
 
-1.  **Fork** this repository.
-2.  Log in to [Vercel](https://vercel.com/) and import the project.
-3.  **Environment Variables** (Add as **Plain Text**):
-    -   `API_KEY`: Google Gemini API Key.
-    -   `VITE_SUPABASE_URL`: (Optional) Your Supabase Project URL.
-    -   `VITE_SUPABASE_KEY`: (Optional) Your Supabase Anon Key.
-4.  Click **"Deploy"**.
+### 🗄️ 2. Database Configuration (Cloud Sync)
 
-#### 2. Cloudflare Pages
+To sync your custom resource sites across devices, you need a **Supabase** instance.
 
-1.  Log in to [Cloudflare Dashboard](https://dash.cloudflare.com/) -> **"Workers & Pages"** -> **"Create Application"**.
-2.  Connect Git repo.
-3.  **Build settings**: Preset `Vite`, Command `npm run build`, Output `dist`.
-4.  **Environment Variables** (Use Plain Text / Not Encrypted): 
-    -   Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_KEY`.
-    -   Add `API_KEY`.
-5.  Click Deploy.
-
-#### 3. Database Setup (Cross-Browser Sync)
-
-To ensure your added Resource Sites appear on all devices/browsers, connect a **Supabase** database.
-
-1.  Create a free project at [supabase.com](https://supabase.com).
-2.  Go to **SQL Editor** and run this query to create the table:
-
+1.  Create a project at [supabase.com](https://supabase.com).
+2.  Run this in the **SQL Editor**:
 ```sql
 create table cine_sources (
   id uuid default gen_random_uuid() primary key,
@@ -67,65 +52,49 @@ create table cine_sources (
   active boolean default true
 );
 
--- Enable Row Level Security (RLS) if you want to restrict write access, 
--- but for personal use you can leave it open or create a policy.
 alter table cine_sources enable row level security;
-
-create policy "Enable all access for all users" on cine_sources
-for all using (true) with check (true);
+create policy "Enable all access" on cine_sources for all using (true) with check (true);
 ```
+3.  Copy `API URL` and `anon key` to your deployment platform variables.
 
-3.  Get your **Project URL** and **anon public key** from Project Settings -> API.
-4.  Add them as environment variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_KEY` in your deployment platform (Vercel/Cloudflare).
+---
+
+### 📱 3. PWA Installation
+- **iOS**: Open in Safari -> Share -> **Add to Home Screen**.
+- **Android/PC**: Click the **Install** button in the Settings menu or address bar.
 
 ---
 
 <div id="chinese-guide"></div>
 
-## 🇨🇳 CineStream AI (中文说明)
+## 🇨🇳 完整安装与部署教程
 
-CineStream AI 是一个现代化的免费高清影视聚合平台，具备智能 P2P 加速、精致的暗黑风 UI 以及 AI 智能助手互动功能。
+CineStream AI 具备 **P2P 播放加速**、**Gemini AI 助手**及**云端同步**功能。请按照以下步骤进行配置。
 
-### ✨ 核心功能
+### 🚀 1. 快速部署
 
--   **高清秒播**: 聚合多个高质量视频源，全网影视免费看。
--   **P2P 智能加速**: 采用 `swarmcloud-hls` 技术，多人观看时自动加速，节省带宽。
--   **AI 助手**: 集成 **Google Gemini AI**，提供剧情互动、影片推荐和闲聊功能。
--   **云端同步**: 支持 **Supabase** 数据库，实现跨浏览器、跨设备同步资源站配置。
--   **多源管理 (CMS)**: 支持在后台添加自定义 Maccms 格式的 CMS 接口，无限扩展资源库。
--   **全端适配**: 完美适配手机、平板和电脑端。
--   **智能弹幕**: 支持自动匹配弹幕，提升观影沉浸感。
+#### 方案 A：Vercel (最简单)
+1.  **Fork** 本项目到您的 GitHub 账号。
+2.  在 [Vercel](https://vercel.com/) 中点击 "Add New Project" 并导入。
+3.  配置 **环境变量 (Environment Variables)**：
+    *   `API_KEY`: 您的 Gemini API 密钥（在 [Google AI Studio](https://aistudio.google.com/) 免费获取）。
+    *   `VITE_SUPABASE_URL`: (可选) Supabase 项目地址。
+    *   `VITE_SUPABASE_KEY`: (可选) Supabase Anon 密钥。
+4.  点击 **Deploy** 即可。
 
-### 🚀 部署教程
+#### 方案 B：Cloudflare Pages
+1.  在 Cloudflare 控制台选择 **Workers & Pages** -> **创建应用程序**。
+2.  **构建设置**：框架预设选择 `Vite`，构建命令 `npm run build`，输出目录 `dist`。
+3.  在变量设置中添加上述环境变量（选择明文类型）。
 
-#### 1. Cloudflare Pages (推荐)
+---
 
-1.  登录 [Cloudflare Dashboard](https://dash.cloudflare.com/) -> **Workers & Pages** -> **创建应用程序**。
-2.  连接 Git 仓库。
-3.  **构建设置**: 框架预设 `Vite`，命令 `npm run build`，输出目录 `dist`。
-4.  **环境变量** (使用默认的明文/文本类型即可，无需加密):
-    -   `API_KEY`: 您的 Gemini API Key。
-    -   `VITE_SUPABASE_URL`: Supabase 项目地址。
-    -   `VITE_SUPABASE_KEY`: Supabase Anon Key。
-5.  点击部署。
+### 🗄️ 2. 配置云端同步 (Supabase)
 
-#### 2. Vercel
+如果您希望在不同设备上看到相同的资源站配置，请配置数据库：
 
-1.  Fork 本项目。
-2.  在 Vercel 导入项目。
-3.  配置环境变量 (Plain Text):
-    -   `API_KEY`: 您的 Gemini API Key。
-    -   `VITE_SUPABASE_URL`: (可选) Supabase 项目地址。
-    -   `VITE_SUPABASE_KEY`: (可选) Supabase Anon Key。
-4.  点击 Deploy。
-
-#### 3. 数据库配置 (跨设备同步资源)
-
-为了解决“换了浏览器/设备后，添加的资源站消失”的问题，请配置 **Supabase** 数据库。
-
-1.  在 [supabase.com](https://supabase.com) 创建免费项目。
-2.  进入 **SQL Editor**，运行以下代码创建表：
-
+1.  在 [Supabase](https://supabase.com) 创建新项目。
+2.  在 **SQL Editor** 中运行以下指令创建表：
 ```sql
 create table cine_sources (
   id uuid default gen_random_uuid() primary key,
@@ -135,28 +104,31 @@ create table cine_sources (
   active boolean default true
 );
 
--- 开启行级安全策略 (RLS)
+-- 开启行级安全（建议个人使用直接开启全访问策略）
 alter table cine_sources enable row level security;
-
--- 允许所有用户读写 (个人使用推荐此设置，简单方便)
-create policy "Enable all access for all users" on cine_sources
-for all using (true) with check (true);
+create policy "Enable all access" on cine_sources for all using (true) with check (true);
 ```
+3.  获取项目的 `API URL` 和 `anon key` 填入部署平台的环境变量。
 
-3.  在项目设置 -> API 中获取 **Project URL** 和 **anon public key**。
-4.  将它们添加到部署平台 (Vercel/Cloudflare) 的环境变量中：`VITE_SUPABASE_URL` 和 `VITE_SUPABASE_KEY`。
+---
 
-这样配置后，无论您在哪个浏览器添加资源，都会同步到云端数据库，并在所有设备上生效。
+### 🛠️ 3. 管理员功能说明
+- **进入后台**：点击右上角齿轮图标。
+- **默认密码**：`5573108` (可在 `SettingsModal.tsx` 中搜索修改)。
+- **添加资源**：支持所有兼容苹果 CMS (Maccms) 格式的 JSON API。
 
-### 🛠 本地开发
+---
 
+### 📱 4. PWA 应用安装
+- **iOS**: 使用 Safari 打开，点击“分享” -> **添加到主屏幕**。
+- **Android/PC**: 在浏览器设置或地址栏点击“安装 CineStream”，即可像原生 App 一样使用（支持离线缓存）。
+
+---
+
+### 💻 本地开发
 ```bash
-# 安装依赖
 npm install
-
-# 启动本地开发服务器
 npm run dev
-
-# 打包生产环境代码
-npm run build
 ```
+
+**License**: MIT. Enjoy your cinema! 🍿

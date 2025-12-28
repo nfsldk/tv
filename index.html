@@ -9,18 +9,26 @@
     
     <!-- PWA Meta Tags -->
     <meta name="theme-color" content="#020617" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="CineStream" />
-    <link rel="manifest" href="/manifest.json" />
-    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="apple-touch-icon" href="./favicon.svg" />
 
     <title>CineStream AI - 免费高清影视 | 智能P2P加速</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     
-    <!-- Tailwind CSS (Keep CDN for simplicity in this hybrid setup, or move to PostCSS later) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
+        // PWA Install Event Capture
+        window.deferredPrompt = null;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            window.deferredPrompt = e;
+            window.dispatchEvent(new CustomEvent('pwa-installable'));
+        });
+
         tailwind.config = {
             theme: {
                 extend: {
@@ -30,70 +38,24 @@
                         brand: "#22c55e",
                         "brand-hover": "#4ade80",
                     },
-                    animation: {
-                        'fade-in': 'fadeIn 0.5s ease-out',
-                        'slide-up': 'slideUp 0.3s ease-out',
-                    },
+                    animation: { 'fade-in': 'fadeIn 0.5s ease-out', 'slide-up': 'slideUp 0.3s ease-out' },
                     keyframes: {
-                        fadeIn: {
-                            '0%': { opacity: '0', transform: 'translateY(10px)' },
-                            '100%': { opacity: '1', transform: 'translateY(0)' },
-                        },
-                        slideUp: {
-                            '0%': { opacity: '0', transform: 'translateY(20px) scale(0.95)' },
-                            '100%': { opacity: '1', transform: 'translateY(0) scale(1)' },
-                        }
+                        fadeIn: { '0%': { opacity: '0', transform: 'translateY(10px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+                        slideUp: { '0%': { opacity: '0', transform: 'translateY(20px) scale(0.95)' }, '100%': { opacity: '1', transform: 'translateY(0) scale(1)' } }
                     }
                 },
             },
         }
     </script>
     
-    <!-- DNS Prefetch for Image Proxy -->
-    <link rel="dns-prefetch" href="https://daili.laidd.de5.net">
-    <link rel="preconnect" href="https://daili.laidd.de5.net">
-
     <style>
-        body {
-            background-color: #020617;
-            background-image:
-                radial-gradient(at 0% 0%, rgba(34, 197, 94, 0.08) 0px, transparent 50%),
-                radial-gradient(at 100% 100%, rgba(6, 182, 212, 0.08) 0px, transparent 50%);
-            background-attachment: fixed;
-            -webkit-tap-highlight-color: transparent;
-        }
+        body { background-color: #020617; -webkit-tap-highlight-color: transparent; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.3); border-radius: 4px; }
-        
-        /* Mobile visible scrollbar trajectory */
-        .visible-scrollbar::-webkit-scrollbar {
-            height: 3px; /* Thin horizontal bar */
-            display: block;
-        }
-        .visible-scrollbar::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 10px;
-            margin: 0 10px;
-        }
-        .visible-scrollbar::-webkit-scrollbar-thumb {
-            background: rgba(34, 197, 94, 0.4); /* Brand color semi-transparent */
-            border-radius: 10px;
-        }
-        .visible-scrollbar {
-            scrollbar-width: thin;
-            scrollbar-color: rgba(34, 197, 94, 0.4) rgba(255, 255, 255, 0.05);
-        }
-
-        .line-clamp-3 {
-            display: -webkit-box;
-            -webkit-line-clamp: 3;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-        }
+        #fail-safe-overlay { display: none; position: fixed; inset: 0; z-index: 9999; background: #020617; color: white; padding: 2rem; text-align: center; flex-direction: column; align-items: center; justify-content: center; }
     </style>
 <script type="importmap">
 {
@@ -116,17 +78,32 @@
 </head>
 <body class="text-gray-200">
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
+
+    <!-- 容错层：当 JS 依赖加载失败或网络被屏蔽时显示 -->
+    <div id="fail-safe-overlay">
+        <h2 class="text-2xl font-bold mb-4">连接似乎受到了限制</h2>
+        <p class="text-gray-400 mb-6 max-w-md">当前网络环境下可能无法直接加载必要的库。请检查您的网络代理，或尝试手动配置代理地址。</p>
+        <div class="flex gap-4">
+            <button onclick="location.reload()" class="bg-brand text-black px-6 py-2 rounded-lg font-bold">重试加载</button>
+            <button onclick="window.dispatchEvent(new CustomEvent('open-emergency-settings'))" class="bg-white/10 text-white px-6 py-2 rounded-lg border border-white/20">配置代理</button>
+        </div>
+    </div>
+
+    <script type="module" src="./index.tsx"></script>
+
     <script>
+        // 自检逻辑：如果 10 秒后 React 还没有挂载内容，说明加载失败
+        setTimeout(() => {
+            const root = document.getElementById('root');
+            if (root && root.innerHTML === '') {
+                document.getElementById('fail-safe-overlay').style.display = 'flex';
+            }
+        }, 10000);
+
+        // Service Worker 注册
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js')
-                    .then(registration => {
-                        console.log('SW registered: ', registration);
-                    })
-                    .catch(registrationError => {
-                        console.log('SW registration failed: ', registrationError);
-                    });
+                navigator.serviceWorker.register('./sw.js').catch(() => {});
             });
         }
     </script>
