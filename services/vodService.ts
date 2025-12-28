@@ -23,7 +23,7 @@ const GLOBAL_PROXY = 'https://daili.laibo123.dpdns.org/?url=';
 const HISTORY_KEY = 'cine_watch_history';
 const SOURCES_KEY = 'cine_vod_sources';
 
-// --- 增强缓存配置 ---
+// --- 缓存配置 ---
 const CACHE_KEYS = {
     HOME: 'cine_cache_home',
     SEARCH: 'cine_cache_search',
@@ -32,20 +32,17 @@ const CACHE_KEYS = {
 };
 
 const TTL = {
-    HOME: 30 * 60 * 1000,    // 30分钟
-    SEARCH: 10 * 60 * 1000,  // 10分钟
-    DETAIL: 24 * 60 * 60 * 1000,  // 详情缓存提升至 24小时，减少重复解析
-    CATEGORY: 20 * 60 * 1000 // 20分钟
+    HOME: 30 * 60 * 1000,
+    SEARCH: 10 * 60 * 1000,
+    DETAIL: 24 * 60 * 60 * 1000,
+    CATEGORY: 20 * 60 * 1000
 };
 
-// 缓存助手函数
 const setCache = (key: string, data: any) => {
     try {
         localStorage.setItem(key, JSON.stringify({ data, timestamp: Date.now() }));
     } catch (e) {
-        if (e.name === 'QuotaExceededError') {
-            localStorage.clear(); 
-        }
+        if (e.name === 'QuotaExceededError') localStorage.clear(); 
     }
 };
 
@@ -61,9 +58,6 @@ const getCache = (key: string, ttl: number) => {
 
 export const clearAppCache = () => {
     Object.values(CACHE_KEYS).forEach(k => localStorage.removeItem(k));
-    if ('caches' in window) {
-        caches.keys().then(names => names.forEach(n => caches.delete(n)));
-    }
 };
 
 // --- 业务函数 ---
@@ -165,7 +159,7 @@ export const resetVodSources = async () => {
 const fetchWithProxy = async (targetUrl: string, options: RequestInit = {}): Promise<any> => {
   try {
       const proxyUrl = `${GLOBAL_PROXY}${encodeURIComponent(targetUrl)}`;
-      const response = await fetch(proxyUrl, { ...options, signal: AbortSignal.timeout(12000) });
+      const response = await fetch(proxyUrl, { ...options, signal: AbortSignal.timeout(10000) });
       if (response.ok) {
           const text = await response.text();
           try { return JSON.parse(text); } catch(e) { return text; }
@@ -188,8 +182,7 @@ const fetchCmsData = async (baseUrl: string, params: URLSearchParams): Promise<a
 };
 
 const fetchDoubanJson = async (type: string, tag: string, limit = 18, sort = 'recommend', startOffset = 0): Promise<VodItem[]> => {
-    const start = startOffset; 
-    const doubanUrl = `https://movie.douban.com/j/search_subjects?type=${type}&tag=${encodeURIComponent(tag)}&sort=${sort}&page_limit=${limit}&page_start=${start}`;
+    const doubanUrl = `https://movie.douban.com/j/search_subjects?type=${type}&tag=${encodeURIComponent(tag)}&sort=${sort}&page_limit=${limit}&page_start=${startOffset}`;
     const data = await fetchWithProxy(doubanUrl);
     if (data && data.subjects && Array.isArray(data.subjects)) {
         return data.subjects.map((item: any) => ({
@@ -212,40 +205,69 @@ export const getHomeSections = async () => {
     const safeFetch = async (fn: Promise<VodItem[]>) => { try { return await fn; } catch (e) { return []; } };
     const [movies, series, shortDrama, anime, variety] = await Promise.all([
         safeFetch(fetchDoubanJson('movie', '热门', 18)),
-        safeFetch(fetchDoubanJson('tv', '热门', 18)),
+        safeFetch(fetchDoubanJson('tv', '电视剧', 18)),
         safeFetch(fetchDoubanJson('tv', '短剧', 18)), 
         safeFetch(fetchDoubanJson('tv', '日本动画', 18)),
         safeFetch(fetchDoubanJson('tv', '综艺', 18))
     ]);
     
     const results = { movies, series, shortDrama, anime, variety };
-    if (movies.length > 0) {
+    if (movies.length > 0 || series.length > 0) {
         setCache(CACHE_KEYS.HOME, results);
     }
     return results;
 };
 
+/**
+ * 修复逻辑：支持豆瓣标签映射与 CMS 回源兜底
+ */
 export const fetchCategoryItems = async (category: string, options: any = {}): Promise<VodItem[]> => {
     const { filter1 = '全部', filter2 = '全部', page = 1 } = options;
     const cacheKey = `${CACHE_KEYS.CATEGORY}_${category}_${filter1}_${filter2}_${page}`;
     const cached = getCache(cacheKey, TTL.CATEGORY);
     if (cached) return cached;
 
-    const limit = 20;
+    const limit = 24;
     const start = (page - 1) * limit;
-    let type = 'movie', tag = '热门', sort = 'recommend';
+    let type = 'movie', tag = '电影', sort = 'recommend';
+
+    // 1. 豆瓣分类逻辑映射
     if (category === 'movies') {
-        if (filter1 === '最新电影') sort = 'time'; else if (filter1 === '豆瓣高分') sort = 'rank'; else if (filter1 === '冷门佳片') tag = '冷门佳片';
+        type = 'movie'; tag = '电影';
+        if (filter1 === '最新电影') sort = 'time'; 
+        else if (filter1 === '豆瓣高分') sort = 'rank'; 
+        else if (filter1 === '冷门佳片') tag = '冷门佳片';
         if (filter2 !== '全部') tag = filter2;
     } else if (category === 'series') {
-        type = 'tv'; if (filter2 !== '全部') tag = filter2;
+        type = 'tv'; tag = '电视剧';
+        if (filter2 === '国产') tag = '国产剧';
+        else if (filter2 === '欧美') tag = '美剧';
+        else if (filter2 === '日本') tag = '日剧';
+        else if (filter2 === '韩国') tag = '韩剧';
+        else if (filter2 !== '全部') tag = filter2;
     } else if (category === 'anime') {
-        type = 'tv'; tag = '日本动画'; if (filter1 === '剧场版') type = 'movie'; if (filter2 !== '全部') tag = filter2;
+        type = 'tv'; tag = '日本动画'; 
+        if (filter1 === '剧场版') type = 'movie';
+        if (filter2 !== '全部' && !filter2.includes('周')) tag = filter2;
     } else if (category === 'variety') {
-        type = 'tv'; tag = '综艺'; if (filter2 !== '全部') tag = filter2;
+        type = 'tv'; tag = '综艺'; 
+        if (filter2 !== '全部') tag = filter2;
     }
-    const results = await fetchDoubanJson(type, tag, limit, sort, start);
-    setCache(cacheKey, results);
+
+    let results = await fetchDoubanJson(type, tag, limit, sort, start);
+
+    // 2. 兜底逻辑：如果豆瓣没数据，从 CMS 采集站获取
+    if (results.length === 0) {
+        console.warn(`Category ${category} returned no data from Douban, falling back to CMS...`);
+        const fallbackKeyword = filter2 !== '全部' ? filter2 : (category === 'movies' ? '电影' : category === 'series' ? '电视剧' : category === 'anime' ? '动漫' : '综艺');
+        const cmsResults = await searchAllCmsResources(fallbackKeyword);
+        // 模拟分页
+        results = cmsResults.slice(start, start + limit);
+    }
+
+    if (results.length > 0) {
+        setCache(cacheKey, results);
+    }
     return results;
 };
 
@@ -281,7 +303,7 @@ export const searchCms = async (keyword: string, page = 1): Promise<ApiResponse>
         msg: "Success", 
         page: page, 
         pagecount: 1, 
-        limit: "20", 
+        limit: "24", 
         total: cmsResults.length, 
         list: cmsResults 
     };
@@ -322,10 +344,6 @@ export const searchDouban = async (keyword: string): Promise<VodItem[]> => {
     return [];
 };
 
-/**
- * 核心修复逻辑：聚合详情页处理
- * 支持刷新时的恢复逻辑
- */
 export const getAggregatedMovieDetail = async (id: number | string, apiUrl?: string, vodName?: string): Promise<{ main: VodDetail, alternatives: VodDetail[] } | null> => {
     const cacheKey = `${CACHE_KEYS.DETAIL}_${id}`;
     const cached = getCache(cacheKey, TTL.DETAIL);
@@ -334,30 +352,23 @@ export const getAggregatedMovieDetail = async (id: number | string, apiUrl?: str
     let doubanMetadata = null;
     let movieName = vodName || '';
 
-    // 1. 如果有 vodName 或 id 不是以 cms_ 开头（说明是豆瓣 ID）
     if (movieName || !String(id).startsWith('cms_')) {
         doubanMetadata = await fetchDoubanData(movieName, String(id).startsWith('cms_') ? undefined : id);
         if (doubanMetadata) movieName = doubanMetadata.title;
     }
 
-    // 2. 如果没能从豆瓣拿到数据（可能是刷新，且是 cms_ ID），先从 CMS 获取基础信息以拿取电影名
     if (!doubanMetadata && String(id).startsWith('cms_')) {
         const rawCms = await getMovieDetail(id, apiUrl);
         if (rawCms) {
             movieName = rawCms.vod_name;
             doubanMetadata = await fetchDoubanData(movieName);
-        } else if (!rawCms) {
-            return null; // 彻底找不到源
         }
     }
 
-    // 如果最终都没拿到元数据，尝试使用基础 CMS 数据返回
     if (!doubanMetadata) {
         const fallback = await getMovieDetail(id, apiUrl);
         if (!fallback) return null;
-        const res = { main: fallback, alternatives: [] };
-        setCache(cacheKey, res);
-        return res;
+        return { main: fallback, alternatives: [] };
     }
 
     const mainDetail: VodDetail = {
@@ -387,7 +398,6 @@ export const getAggregatedMovieDetail = async (id: number | string, apiUrl?: str
         try {
             const params = new URLSearchParams({ ac: 'detail', wd: mainDetail.vod_name });
             const data = await fetchCmsData(s.api, params);
-            // 模糊匹配：移除常见冗余字符后再比较
             const clean = (s: string) => s.replace(/\s+/g, '').toLowerCase();
             const target = clean(mainDetail.vod_name);
             const exact = data?.list?.find((v: any) => clean(v.vod_name).includes(target) || target.includes(clean(v.vod_name)));
@@ -399,7 +409,6 @@ export const getAggregatedMovieDetail = async (id: number | string, apiUrl?: str
     const results = (await Promise.all(searchPromises)).filter((r): r is VodDetail => r !== null);
     
     if (results.length > 0) {
-        // 合并播放源
         mainDetail.vod_play_url = results[0].vod_play_url;
         mainDetail.vod_play_from = results[0].vod_play_from;
         mainDetail.api_url = results[0].api_url;
@@ -409,36 +418,11 @@ export const getAggregatedMovieDetail = async (id: number | string, apiUrl?: str
         return res;
     }
 
-    const finalRes = { main: mainDetail, alternatives: [] };
-    setCache(cacheKey, finalRes);
-    return finalRes;
-};
-
-export const enrichVodDetail = async (detail: VodDetail): Promise<Partial<VodDetail> | null> => {
-    try {
-        const doubanData = await fetchDoubanData(detail.vod_name, detail.vod_douban_id);
-        if (doubanData) {
-            const updates: Partial<VodDetail> = {};
-            if (doubanData.score) updates.vod_score = doubanData.score;
-            if (doubanData.pic) updates.vod_pic = doubanData.pic;
-            if (doubanData.content) updates.vod_content = doubanData.content;
-            if (doubanData.director) updates.vod_director = doubanData.director;
-            if (doubanData.actor) updates.vod_actor = doubanData.actor;
-            if (doubanData.writer) updates.vod_writer = doubanData.writer;
-            if (doubanData.pubdate) updates.vod_pubdate = doubanData.pubdate;
-            if (doubanData.type_name) updates.type_name = doubanData.type_name;
-            if (doubanData.recs) updates.vod_recs = doubanData.recs;
-            if (doubanData.actorsExtended) updates.vod_actors_extended = doubanData.actorsExtended;
-            if (doubanData.reviews) updates.vod_reviews = doubanData.reviews;
-            return updates;
-        }
-    } catch (e) {}
-    return null;
+    return { main: mainDetail, alternatives: [] };
 };
 
 export const getMovieDetail = async (id: number | string, apiUrl?: string): Promise<VodDetail | null> => {
     const realId = String(id).replace('cms_', '');
-    // 如果没有指定 API URL，则遍历所有活跃源寻找此 ID（可能稍慢，但能保证刷新成功）
     const sources = apiUrl ? [{ api: apiUrl }] : getVodSources().filter(s => s.active);
     const params = new URLSearchParams({ ac: 'detail', ids: realId });
     for (const source of sources) {
@@ -472,9 +456,7 @@ export const getDoubanPoster = async (keyword: string): Promise<string | null> =
     try {
         const suggestUrl = `https://movie.douban.com/j/subject_suggest?q=${encodeURIComponent(keyword)}`;
         const data = await fetchWithProxy(suggestUrl);
-        if (Array.isArray(data) && data.length > 0 && data[0].img) {
-            return data[0].img;
-        }
+        if (Array.isArray(data) && data.length > 0 && data[0].img) return data[0].img;
     } catch(e) {}
     return null; 
 };
@@ -503,9 +485,7 @@ export const parseAllSources = (input: VodDetail | VodDetail[]): PlaySource[] =>
                     episodes.push({ title: parts.length > 1 ? parts[0] : `第${epIdx+1}集`, url: url.startsWith('//') ? `https:${url}` : url, index: epIdx });
                 }
             });
-            if (episodes.length > 0) {
-                allSources.push({ name: baseSourceName, episodes });
-            }
+            if (episodes.length > 0) allSources.push({ name: baseSourceName, episodes });
         });
     });
     return allSources;
@@ -529,9 +509,7 @@ export const fetchDoubanData = async (keyword: string, doubanId?: string | numbe
          const plSpan = Array.from(doc.querySelectorAll('#info span.pl')).find(el => el.textContent?.includes(label));
          if (!plSpan) return '';
          const attrsSpan = plSpan.nextElementSibling;
-         if (attrsSpan && attrsSpan.classList.contains('attrs')) {
-             return attrsSpan.textContent?.trim() || '';
-         }
+         if (attrsSpan && attrsSpan.classList.contains('attrs')) return attrsSpan.textContent?.trim() || '';
          let curr = plSpan.nextSibling;
          let content = '';
          while(curr && curr.nodeName !== 'BR') { content += curr.textContent; curr = curr.nextSibling; }
