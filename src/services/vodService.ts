@@ -13,16 +13,27 @@ if (SUPABASE_URL && SUPABASE_KEY) {
 
 const DEFAULT_SOURCE: VodSource = {
     id: 'default',
-    name: '默认源 (官方)',
+    name: '极速资源 (默认)',
     api: 'https://caiji.dyttzyapi.com/api.php/provide/vod',
     active: true,
     canDelete: false
 };
 
-const GLOBAL_PROXY = 'https://daili.laibo123.dpdns.org/?url=';
-const SOURCES_KEY = 'cine_vod_sources';
+const PROXIES = [
+    'https://daili.laidd.de5.net/?url=',
+    'https://api.allorigins.win/raw?url=',
+    'https://corsproxy.io/?'
+];
 
-const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = 10000) => {
+const HISTORY_KEY = 'cine_watch_history';
+const SOURCES_KEY = 'cine_vod_sources';
+const HOME_CACHE_KEY = 'cine_home_data_v5';
+const CAT_CACHE_PREFIX = 'cine_cat_cache_';
+const CACHE_TTL = 10 * 60 * 1000;
+
+// --- UTILS ---
+
+const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = 6000) => {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
     try {
@@ -35,120 +46,193 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout 
     }
 };
 
-const fetchWithProxy = async (targetUrl: string, options: RequestInit = {}): Promise<any> => {
-  try {
-      const proxyUrl = `${GLOBAL_PROXY}${encodeURIComponent(targetUrl)}`;
-      const response = await fetchWithTimeout(proxyUrl, options, 10000);
-      if (response.ok) {
-          const text = await response.text();
-          try { return JSON.parse(text); } catch(e) { return text; }
-      }
-  } catch (e) {}
-  return null;
+const fetchWithProxy = async (targetUrl: string): Promise<any> => {
+    for (const proxy of PROXIES) {
+        try {
+            const encodedUrl = proxy.includes('corsproxy.io') ? targetUrl : encodeURIComponent(targetUrl);
+            const res = await fetchWithTimeout(`${proxy}${encodedUrl}`, {}, 8000);
+            if (res.ok) {
+                const text = await res.text();
+                try { return JSON.parse(text); } catch(e) { return text; }
+            }
+        } catch (e) {}
+    }
+    return null;
 };
 
 const fetchCmsData = async (baseUrl: string, params: URLSearchParams): Promise<any> => {
     params.set('out', 'json');
     const url = `${baseUrl}?${params.toString()}`;
     try {
-        const res = await fetchWithTimeout(url, {}, 5000);
+        const res = await fetchWithTimeout(url, {}, 4000);
         if (res.ok) {
-            const text = await res.text();
-            try { return JSON.parse(text); } catch (e) {}
+            const data = await res.json();
+            if (data?.list) return data;
         }
     } catch (e) {}
     return await fetchWithProxy(url);
 };
 
-export const getAggregatedMovieDetail = async (id: number | string, apiUrl?: string, vodName?: string): Promise<{ main: VodDetail, alternatives: VodDetail[] } | null> => {
-    // 快速起播路径：如果已知来源 URL，直接从该站抓取，不走复杂的全网聚合
-    if (apiUrl && String(id).startsWith('cms_')) {
-        const realId = String(id).replace('cms_', '');
-        try {
-            const data = await fetchCmsData(apiUrl, new URLSearchParams({ ac: 'detail', ids: realId }));
-            if (data?.list?.[0]) {
-                const main = data.list[0];
-                main.api_url = apiUrl;
-                // 异步补全豆瓣评分等信息，不阻塞主流程
-                fetchDoubanData(main.vod_name).then(db => {
-                    if (db) {
-                        main.vod_douban_score = db.score;
-                        main.vod_content = db.content || main.vod_content;
-                    }
-                });
-                return { main, alternatives: [] };
-            }
-        } catch (e) {}
-    }
-
-    // 聚合路径：尝试从所有可用源中匹配
-    const realId = String(id).replace('cms_', '');
-    let mainDetail = await getMovieDetail(realId, apiUrl);
-    
-    if (!mainDetail && vodName) {
-        const sources = getVodSources().filter(s => s.active);
-        for (const s of sources) {
-            try {
-                const data = await fetchCmsData(s.api, new URLSearchParams({ ac: 'detail', wd: vodName }));
-                const exact = data?.list?.find((v: any) => v.vod_name === vodName);
-                if (exact) { exact.api_url = s.api; mainDetail = exact; break; }
-            } catch(e) {}
-        }
-    }
-    
-    if (!mainDetail) return null;
-    return { main: mainDetail, alternatives: [] };
-};
-
-export const fetchCategoryItems = async (category: string, options: any = {}) => {
-    const { filter1 = '全部', filter2 = '全部', page = 1 } = options;
-    let type = category === 'movies' ? 'movie' : 'tv';
-    let tag = '热门';
-    
-    if (filter1 !== '全部') tag = filter1;
-    else if (category === 'anime') tag = '日本动画';
-    else if (category === 'variety') tag = '综艺';
-
-    const url = `https://movie.douban.com/j/search_subjects?type=${type}&tag=${encodeURIComponent(tag)}&sort=recommend&page_limit=18&page_start=${(page - 1) * 18}`;
-    const data = await fetchWithProxy(url);
-    return (data?.subjects || []).map((item: any) => ({
-        vod_id: item.id,
-        vod_name: item.title,
-        vod_pic: item.cover || '', 
-        vod_score: item.rate,
-        vod_year: '2024'
-    }));
-};
+// --- CORE LOGIC ---
 
 export const getHomeSections = async () => {
-    const [movies, series, anime, variety] = await Promise.all([
+    try {
+        const cached = localStorage.getItem(HOME_CACHE_KEY);
+        if (cached) {
+            const { data, timestamp } = JSON.parse(cached);
+            if (Date.now() - timestamp < CACHE_TTL) return data;
+        }
+    } catch (e) {}
+
+    const [dbMovies, dbSeries, dbAnime, dbVariety] = await Promise.all([
         fetchDoubanJson('movie', '热门', 12),
         fetchDoubanJson('tv', '热门', 12),
         fetchDoubanJson('tv', '日本动画', 12),
         fetchDoubanJson('tv', '综艺', 12)
     ]);
-    return { movies, series, anime, variety };
+
+    const cmsLatest = await fetchCmsLatest(40);
+
+    const mergeData = (dbList: VodItem[], keyword: string) => {
+        if (dbList.length >= 6) return dbList;
+        const cmsSupplements = cmsLatest.filter(i => 
+            i.type_name?.includes(keyword) || 
+            (keyword === '电影' && (i.type_name?.includes('影') || i.type_name?.includes('片')))
+        ).slice(0, 12);
+        return [...dbList, ...cmsSupplements].slice(0, 12);
+    };
+
+    const data = {
+        movies: mergeData(dbMovies, '电影'),
+        series: mergeData(dbSeries, '剧'),
+        anime: mergeData(dbAnime, '动漫'),
+        variety: mergeData(dbVariety, '综艺'),
+        all: cmsLatest.length > 0 ? cmsLatest : dbMovies
+    };
+
+    if (data.movies.length > 0 || data.all.length > 0) {
+        localStorage.setItem(HOME_CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() }));
+    }
+    return data;
+};
+
+const fetchCmsLatest = async (limit = 30): Promise<VodItem[]> => {
+    const source = getVodSources().find(s => s.active) || DEFAULT_SOURCE;
+    try {
+        const data = await fetchCmsData(source.api, new URLSearchParams({ ac: 'videolist', pg: '1' }));
+        if (data?.list) {
+            return data.list.slice(0, limit).map((item: any) => ({
+                vod_id: `cms_${item.vod_id}`,
+                vod_name: item.vod_name,
+                vod_pic: item.vod_pic,
+                vod_remarks: item.vod_remarks,
+                type_name: item.type_name,
+                vod_year: item.vod_year,
+                vod_score: item.vod_score || 'N/A',
+                api_url: source.api,
+                source: 'cms' as const
+            }));
+        }
+    } catch (e) {}
+    return [];
 };
 
 const fetchDoubanJson = async (type: string, tag: string, limit = 12): Promise<VodItem[]> => {
     const url = `https://movie.douban.com/j/search_subjects?type=${type}&tag=${encodeURIComponent(tag)}&sort=recommend&page_limit=${limit}&page_start=0`;
     const data = await fetchWithProxy(url);
-    return (data?.subjects || []).map((item: any) => ({
-        vod_id: item.id,
-        vod_name: item.title,
-        vod_pic: item.cover || '', 
-        vod_score: item.rate,
-        vod_year: '2024'
-    }));
+    if (data?.subjects && Array.isArray(data.subjects)) {
+        return data.subjects.map((item: any) => ({
+            vod_id: item.id,
+            vod_name: item.title,
+            vod_pic: item.cover || '', 
+            vod_score: item.rate,
+            vod_year: '2024',
+            source: 'douban' as const
+        }));
+    }
+    return [];
 };
 
-export const getMovieDetail = async (id: number | string, apiUrl?: string): Promise<VodDetail | null> => {
-    const sources = apiUrl ? [{ api: apiUrl }] : getVodSources().filter(s => s.active);
+export const fetchCategoryItems = async (category: string, options: any = {}): Promise<VodItem[]> => {
+    const { filter1 = '全部', filter2 = '全部', page = 1 } = options;
+    let results = await fetchDoubanJson(
+        category === 'movies' ? 'movie' : 'tv', 
+        filter1 === '全部' ? (category === 'anime' ? '日本动画' : (category === 'variety' ? '综艺' : '热门')) : filter1,
+        20
+    );
+    if (results.length === 0 || page > 1) {
+        let kw = filter2 !== '全部' ? filter2 : (category === 'movies' ? '电影' : (category === 'series' ? '电视剧' : (category === 'anime' ? '动漫' : '综艺')));
+        const cmsRes = await searchAllCmsResources(kw);
+        results = cmsRes.slice((page - 1) * 20, page * 20);
+    }
+    return results;
+};
+
+export const searchAllCmsResources = async (keyword: string): Promise<VodItem[]> => {
+    const sources = getVodSources().filter(s => s.active);
+    const results = await Promise.all(sources.map(async (source) => {
+        try {
+            const data = await fetchCmsData(source.api, new URLSearchParams({ ac: 'detail', wd: keyword }));
+            return (data?.list || []).map((item: any) => ({
+                vod_id: `cms_${item.vod_id}`,
+                vod_name: item.vod_name,
+                vod_pic: item.vod_pic,
+                vod_remarks: item.vod_remarks,
+                type_name: item.type_name,
+                vod_year: item.vod_year,
+                api_url: source.api,
+                source: 'cms' as const
+            }));
+        } catch(e) { return []; }
+    }));
+    const flattened = results.flat();
+    const seen = new Set();
+    return flattened.filter(item => {
+        if (seen.has(item.vod_name)) return false;
+        seen.add(item.vod_name);
+        return true;
+    });
+};
+
+export const getAggregatedSearch = async (keyword: string): Promise<VodItem[]> => {
+    const [dbSuggest, cmsResults] = await Promise.all([
+        fetchWithProxy(`https://movie.douban.com/j/subject_suggest?q=${encodeURIComponent(keyword)}`),
+        searchAllCmsResources(keyword)
+    ]);
+    const dbItems: VodItem[] = Array.isArray(dbSuggest) ? dbSuggest.map((item: any) => ({
+        vod_id: item.id,
+        vod_name: item.title,
+        vod_pic: item.img || '',
+        type_name: item.type || '影视',
+        vod_year: item.year,
+        source: 'douban' as const
+    })) : [];
+    return [...dbItems, ...cmsResults];
+};
+
+export const getAggregatedMovieDetail = async (id: number | string, apiUrl?: string, vodName?: string): Promise<{ main: VodDetail, alternatives: VodDetail[] } | null> => {
+    const realId = String(id).replace('cms_', '');
+    if (apiUrl) {
+        const data = await fetchCmsData(apiUrl, new URLSearchParams({ ac: 'detail', ids: realId }));
+        if (data?.list?.[0]) {
+            data.list[0].api_url = apiUrl;
+            return { main: data.list[0], alternatives: [] };
+        }
+    }
+    const sources = getVodSources().filter(s => s.active);
     for (const source of sources) {
         try {
-            const data = await fetchCmsData(source.api, new URLSearchParams({ ac: 'detail', ids: id.toString() }));
-            if (data?.list?.[0]) { data.list[0].api_url = source.api; return data.list[0]; }
-        } catch(e) {}
+            const data = await fetchCmsData(source.api, new URLSearchParams({ ac: 'detail', ids: realId }));
+            if (data?.list?.[0]) {
+                data.list[0].api_url = source.api;
+                return { main: data.list[0], alternatives: [] };
+            }
+        } catch (e) {}
+    }
+    if (vodName) {
+        const searchRes = await searchAllCmsResources(vodName);
+        const match = searchRes.find(i => i.vod_name === vodName);
+        if (match && match.api_url) return await getAggregatedMovieDetail(match.vod_id, match.api_url);
     }
     return null;
 };
@@ -157,16 +241,21 @@ export const parseAllSources = (input: VodDetail | VodDetail[]): PlaySource[] =>
     const details = Array.isArray(input) ? input : [input];
     const all: PlaySource[] = [];
     details.forEach(d => {
-        if (!d.vod_play_url) return;
+        if (!d.vod_play_url || !d.vod_play_from) return;
         const froms = d.vod_play_from.split('$$$');
         const urls = d.vod_play_url.split('$$$');
         froms.forEach((f, i) => {
             if (!f.toLowerCase().includes('m3u8')) return;
-            const eps = urls[i].split('#').map((l, idx) => {
-                const [title, url] = l.split('$');
-                return { title: url ? title : `第${idx+1}集`, url: url || title, index: idx };
-            });
-            all.push({ name: f, episodes: eps });
+            const segments = urls[i].split('#');
+            const episodes = segments.map((seg, idx) => {
+                const parts = seg.split('$');
+                return {
+                    title: parts.length > 1 ? parts[0] : `第${idx + 1}集`,
+                    url: parts.length > 1 ? parts[1] : parts[0],
+                    index: idx
+                };
+            }).filter(e => e.url && (e.url.startsWith('http') || e.url.startsWith('//')));
+            if (episodes.length > 0) all.push({ name: f, episodes });
         });
     });
     return all;
@@ -187,42 +276,25 @@ export const fetchDoubanData = async (keyword: string, doubanId?: string | numbe
         doubanId: String(targetId),
         score: doc.querySelector('.ll.rating_num')?.textContent?.trim(),
         content: doc.querySelector('span[property="v:summary"]')?.textContent?.trim(),
-        pic: doc.querySelector('#mainpic img')?.getAttribute('src')
+        pic: doc.querySelector('#mainpic img')?.getAttribute('src'),
+        director: doc.querySelector('a[rel="v:directedBy"]')?.textContent?.trim(),
+        actor: Array.from(doc.querySelectorAll('a[rel="v:starring"]')).slice(0, 5).map(a => a.textContent).join(' / ')
     };
   } catch (e) { return null; }
-};
-
-export const getAggregatedSearch = async (keyword: string): Promise<VodItem[]> => {
-    const sources = getVodSources().filter(s => s.active);
-    const promises = sources.map(async (source) => {
-        try {
-            const data = await fetchCmsData(source.api, new URLSearchParams({ ac: 'detail', wd: keyword }));
-            return (data?.list || []).map((item: any) => ({
-                vod_id: `cms_${item.vod_id}`,
-                vod_name: item.vod_name,
-                vod_pic: item.vod_pic,
-                type_name: item.type_name,
-                api_url: source.api
-            }));
-        } catch(e) { return []; }
-    });
-    const results = await Promise.all(promises);
-    return results.flat();
 };
 
 export const getVodSources = (): VodSource[] => {
     try {
         const stored = localStorage.getItem(SOURCES_KEY);
-        if (stored) return JSON.parse(stored);
-    } catch(e) {}
-    return [DEFAULT_SOURCE];
+        return stored ? JSON.parse(stored) : [DEFAULT_SOURCE];
+    } catch(e) { return [DEFAULT_SOURCE]; }
 };
 
 export const initVodSources = async () => {
     if (!supabase) return;
     try {
         const { data } = await supabase.from('cine_sources').select('*').order('created_at', { ascending: true });
-        if (data) {
+        if (data && data.length > 0) {
             const cloudSources = data.map((d: any) => ({ id: d.id, name: d.name, api: d.api, active: d.active, canDelete: true }));
             const combined = [DEFAULT_SOURCE, ...cloudSources.filter(cs => cs.api !== DEFAULT_SOURCE.api)];
             localStorage.setItem(SOURCES_KEY, JSON.stringify(combined));
@@ -230,21 +302,34 @@ export const initVodSources = async () => {
     } catch (e) {}
 };
 
-export const getHistory = (): HistoryItem[] => JSON.parse(localStorage.getItem('cine_watch_history') || '[]');
+export const saveVodSources = (s: VodSource[]) => localStorage.setItem(SOURCES_KEY, JSON.stringify(s));
+export const getHistory = (): HistoryItem[] => {
+    try {
+        const stored = localStorage.getItem(HISTORY_KEY);
+        return stored ? JSON.parse(stored) : [];
+    } catch(e) { return []; }
+};
+
 export const addToHistory = (item: HistoryItem) => {
-    let h = getHistory().filter(x => String(x.vod_id) !== String(item.vod_id));
-    h.unshift(item);
-    localStorage.setItem('cine_watch_history', JSON.stringify(h.slice(0, 20)));
-    return h;
+    let history = getHistory();
+    // 过滤掉当前 ID，确保新的这条排在最前面
+    history = history.filter(h => String(h.vod_id) !== String(item.vod_id));
+    history.unshift(item);
+    const limited = history.slice(0, 30); // 增加历史容量到 30 条
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(limited));
+    return limited;
 };
+
 export const removeFromHistory = (id: string | number) => {
-    let h = getHistory().filter(x => String(x.vod_id) !== String(id));
-    localStorage.setItem('cine_watch_history', JSON.stringify(h));
-    return h;
+    let history = getHistory();
+    const updated = history.filter(h => String(h.vod_id) !== String(id));
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+    return updated;
 };
-export const getDoubanPoster = async (k: string) => null;
+
 export const clearAppCache = () => { localStorage.clear(); window.location.reload(); };
+export const getDoubanPoster = async (k: string) => null;
 export const fetchPersonDetail = async (id: any) => null;
-export const saveVodSources = (s: any) => localStorage.setItem(SOURCES_KEY, JSON.stringify(s));
+export const addVodSource = async (n: string, a: string) => null;
 export const deleteVodSource = async (id: any) => {};
 export const resetVodSources = async () => [DEFAULT_SOURCE];
