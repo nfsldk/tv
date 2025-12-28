@@ -1,32 +1,40 @@
-const CACHE_NAME = 'cinestream-v4';
-const VIDEO_CACHE_NAME = 'cinestream-video-v2';
-const APP_SHELL = [
+
+const CACHE_NAME = 'cinestream-v23';
+const OFFLINE_URL = '/index.html';
+
+const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/favicon.svg',
   '/manifest.json'
 ];
 
-// 1. Install: Cache the basic App Shell
+// 需要长期缓存的静态域
+const LONG_TERM_DOMAINS = [
+  'aistudiocdn.com',
+  'cdn.tailwindcss.com',
+  'images.weserv.nl',
+  'doubanio.com'
+];
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[SW] Caching App Shell');
-      return cache.addAll(APP_SHELL);
+      console.log('[PWA] Static assets pre-cached');
+      return cache.addAll(STATIC_ASSETS);
     })
   );
   self.skipWaiting();
 });
 
-// 2. Activate: Clean up old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
+    caches.keys().then((cacheNames) => {
       return Promise.all(
-        keys.map((key) => {
-          if (key !== CACHE_NAME && key !== VIDEO_CACHE_NAME) {
-            console.log('[SW] Deleting old cache:', key);
-            return caches.delete(key);
+        cacheNames.map((name) => {
+          if (name !== CACHE_NAME) {
+            console.log('[PWA] Deleting old cache:', name);
+            return caches.delete(name);
           }
         })
       );
@@ -35,109 +43,53 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Helper: Match asset types
-const isAsset = (url) => url.match(/\.(js|css|png|jpg|jpeg|svg|ico|woff2)$/);
-const isCDN = (url) => url.includes('aistudiocdn.com') || url.includes('cdn.tailwindcss.com');
-const isAPI = (url) => url.includes('api.php') || url.includes('douban.com') || url.includes('daili.laidd.de5.net');
+// 排除不需要缓存的动态请求
+const isIgnored = (url) => {
+  return (
+    url.includes('.ts') || 
+    url.includes('googleads') ||
+    url.includes('doubleclick') ||
+    url.includes('/match') ||
+    url.includes('laibo123.dpdns.org/5573108/api/v2/comment')
+  );
+};
 
-// Video Helpers
-const isVideoPlaylist = (url) => url.includes('.m3u8');
-const isVideoSegment = (url) => url.match(/\.(ts|mp4|m4s|m4a)$/) || url.includes('seg-') || url.includes('video');
-
-// 3. Fetch strategy
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-  
-  // Ignore range requests for video to avoid cache errors (HLS.js handles ranges internally)
-  if (request.headers.has('range')) return;
+  const url = new URL(request.url);
 
-  // --- VIDEO HANDLING ---
-  
-  // A. Video Segments: Cache First (Content is immutable)
-  if (isVideoSegment(request.url)) {
-    event.respondWith(
-      caches.open(VIDEO_CACHE_NAME).then((cache) => {
-        return cache.match(request).then((cached) => {
-          if (cached) return cached;
-          return fetch(request).then((response) => {
-            // Cache segment if response is valid (200) or opaque (CORS)
-            // Note: Opaque responses are padded by the browser and can be large.
-            if (response.status === 200 || response.type === 'opaque') {
-              cache.put(request, response.clone());
-            }
-            return response;
-          }).catch(() => null);
-        });
-      })
-    );
-    return;
-  }
+  if (request.method !== 'GET' || isIgnored(url.href)) return;
 
-  // B. Video Playlists: Network First (Check for updates, fallback to cache)
-  if (isVideoPlaylist(request.url)) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const cacheCopy = response.clone();
-            caches.open(VIDEO_CACHE_NAME).then((cache) => cache.put(request, cacheCopy));
-          }
-          return response;
-        })
-        .catch(() => caches.match(request))
-    );
-    return;
-  }
-
-  // --- STANDARD HANDLING ---
-
-  // SPA Navigation: Serve index.html for all sub-routes if network fails
+  // 1. 导航请求：优先网络，失败后返回离线页
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => {
-        return caches.match('/index.html') || caches.match('/');
-      })
+      fetch(request).catch(() => caches.match(OFFLINE_URL))
     );
     return;
   }
 
-  // CDN & Static Assets: Stale-While-Revalidate
-  if (isCDN(request.url) || isAsset(request.url)) {
+  // 2. 核心静态资源/CDN：缓存优先
+  const isCdn = LONG_TERM_DOMAINS.some(domain => url.hostname.includes(domain));
+  const isAsset = url.pathname.match(/\.(js|css|svg|ico|png|jpg|jpeg|webp)$/);
+
+  if (isCdn || isAsset) {
     event.respondWith(
       caches.match(request).then((cached) => {
-        const networked = fetch(request)
-          .then((response) => {
-            if (response.ok || response.type === 'opaque') {
-              const cacheCopy = response.clone();
-              caches.open(CACHE_NAME).then((cache) => cache.put(request, cacheCopy));
-            }
-            return response;
-          })
-          .catch(() => null);
+        const networkFetch = fetch(request).then((response) => {
+          if (response && response.status === 200 && response.type === 'basic' || response.type === 'cors') {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        }).catch(() => cached);
 
-        return cached || networked;
+        return cached || networkFetch;
       })
     );
     return;
   }
 
-  // API Requests: Network First, Fallback to Cache
-  if (isAPI(request.url)) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const cacheCopy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, cacheCopy));
-          }
-          return response;
-        })
-        .catch(() => caches.match(request))
-    );
-    return;
-  }
-
-  // Default: Network First
+  // 3. 其他 API 请求：网络优先
   event.respondWith(
     fetch(request).catch(() => caches.match(request))
   );

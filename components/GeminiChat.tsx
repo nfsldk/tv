@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, GenerateContentResponse, Chat } from '@google/genai';
 import { VodDetail, ChatMessage } from '../types';
 
 interface GeminiChatProps {
@@ -12,12 +13,55 @@ const GeminiChat: React.FC<GeminiChatProps> = ({ currentMovie }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // Fix: Use Chat type from @google/genai
+  const chatSessionRef = useRef<Chat | null>(null);
 
   useEffect(() => {
       if (isOpen && messagesEndRef.current) {
           messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
       }
   }, [messages, isOpen]);
+
+  // Re-initialize chat session when the movie context changes
+  useEffect(() => {
+      // Fix: Direct use of process.env.API_KEY as per guidelines
+      const apiKey = process.env.API_KEY;
+      if (!apiKey) return;
+
+      try {
+          // Fix: Proper initialization of GoogleGenAI
+          const ai = new GoogleGenAI({ apiKey });
+          
+          let systemInstruction = "你是一个幽默、知识渊博的电影助手。请用中文简练地回答。";
+          if (currentMovie) {
+              const cleanContent = currentMovie.vod_content ? currentMovie.vod_content.replace(/<[^>]+>/g, '') : '暂无';
+              systemInstruction += `
+              当前上下文 - 用户正在观看影片：
+              名称: ${currentMovie.vod_name}
+              类型: ${currentMovie.type_name}
+              年份: ${currentMovie.vod_year}
+              地区: ${currentMovie.vod_area}
+              主演: ${currentMovie.vod_actor}
+              简介: ${cleanContent}
+              `;
+          } else {
+              systemInstruction += "用户目前在首页浏览。";
+          }
+
+          // Fix: Use 'gemini-3-flash-preview' for basic text tasks
+          chatSessionRef.current = ai.chats.create({
+              model: 'gemini-3-flash-preview',
+              config: { systemInstruction }
+          });
+          
+          // Reset chat history visually when context changes
+          setMessages([{ role: 'model', text: currentMovie ? `已切换到《${currentMovie.vod_name}》的讨论模式。` : '你好！我是你的观影 AI 助手。' }]);
+
+      } catch (e) {
+          console.error("Failed to init chat session", e);
+      }
+  }, [currentMovie]);
 
   const handleSend = async () => {
       if (!input.trim() || isLoading) return;
@@ -34,35 +78,36 @@ const GeminiChat: React.FC<GeminiChatProps> = ({ currentMovie }) => {
       }
 
       try {
-          const ai = new GoogleGenAI({ apiKey });
-          let systemInstruction = "你是一个幽默、知识渊博的电影助手。请用中文简练地回答。";
-          
-          if (currentMovie) {
-              const cleanContent = currentMovie.vod_content ? currentMovie.vod_content.replace(/<[^>]+>/g, '') : '暂无';
-              systemInstruction += `
-              当前上下文 - 用户正在观看影片：
-              名称: ${currentMovie.vod_name}
-              类型: ${currentMovie.type_name}
-              年份: ${currentMovie.vod_year}
-              地区: ${currentMovie.vod_area}
-              主演: ${currentMovie.vod_actor}
-              简介: ${cleanContent}
-              `;
-          } else {
-              systemInstruction += "用户目前在首页浏览。";
+          // Fix: Ensure session exists before sending
+          if (!chatSessionRef.current) {
+               const ai = new GoogleGenAI({ apiKey });
+               chatSessionRef.current = ai.chats.create({
+                  model: 'gemini-3-flash-preview',
+                  config: { systemInstruction: "你是一个幽默、知识渊博的电影助手。" }
+               });
           }
 
-          const response = await ai.models.generateContent({
-              model: 'gemini-2.5-flash',
-              contents: [{ role: 'user', parts: [{ text: userText }] }],
-              config: { systemInstruction }
+          // Fix: Correct usage of sendMessage with message parameter
+          const response: GenerateContentResponse = await chatSessionRef.current.sendMessage({
+              message: userText
           });
 
+          // Fix: Access .text property directly (not a method)
           const reply = response.text || "抱歉，我没有理解您的问题。";
           setMessages(prev => [...prev, { role: 'model', text: reply }]);
-      } catch (error) {
+      } catch (error: any) {
           console.error("AI Error", error);
-          setMessages(prev => [...prev, { role: 'model', text: "AI 服务暂时不可用。" }]);
+          let errorMsg = "AI 服务暂时不可用。";
+          
+          if (error.message?.includes('403') || error.toString().includes('403')) {
+              errorMsg = "API Key 无效或无权限。";
+          } else if (error.message?.includes('429')) {
+              errorMsg = "请求过多，请稍后再试。";
+          } else if (error.message) {
+              errorMsg = `错误: ${error.message.slice(0, 50)}...`;
+          }
+
+          setMessages(prev => [...prev, { role: 'model', text: errorMsg }]);
       } finally {
           setIsLoading(false);
       }

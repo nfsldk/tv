@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { VodSource } from '../types';
-import { getVodSources, addVodSource, deleteVodSource, resetVodSources, saveVodSources, initVodSources } from '../services/vodService';
+import { getVodSources, addVodSource, deleteVodSource, resetVodSources, saveVodSources, initVodSources, clearAppCache } from '../services/vodService';
 
 interface SettingsModalProps {
     isOpen: boolean;
@@ -19,39 +20,21 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
 
-    // PWA Install State
-    const [canInstall, setCanInstall] = useState(false);
-
     useEffect(() => {
         if (isOpen) {
             const syncAndLoad = async () => {
                 setIsLoading(true);
-                await initVodSources();
+                await initVodSources(); 
                 setSources(getVodSources());
                 setIsLoading(false);
             };
             syncAndLoad();
-
-            // Check if PWA installation is possible
-            setCanInstall(!!(window as any).deferredPrompt);
+            if (!isAuthenticated) {
+                setPassword('');
+                setError('');
+            }
         }
-
-        // Listener for dynamic installability changes
-        const handleInstallable = () => setCanInstall(true);
-        window.addEventListener('pwa-installable', handleInstallable);
-        return () => window.removeEventListener('pwa-installable', handleInstallable);
     }, [isOpen]);
-
-    const handleInstallApp = async () => {
-        const promptEvent = (window as any).deferredPrompt;
-        if (!promptEvent) return;
-        
-        promptEvent.prompt();
-        const { outcome } = await promptEvent.userChoice;
-        console.log(`[PWA] Install choice: ${outcome}`);
-        (window as any).deferredPrompt = null;
-        setCanInstall(false);
-    };
 
     const handleLogin = (e: React.FormEvent) => {
         e.preventDefault();
@@ -67,12 +50,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     const handleAdd = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newName || !newApi) return;
-        
         setIsLoading(true);
         await addVodSource(newName.trim(), newApi.trim());
         setSources(getVodSources());
         setIsLoading(false);
-        
         setNewName('');
         setNewApi('');
         setShowAdd(false);
@@ -102,6 +83,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
         }
     };
 
+    const onClearCache = () => {
+        if (confirm('这将清除全站缓存数据（包括首页、详情、搜索记录），确定吗？')) {
+            clearAppCache();
+            alert('缓存已清理');
+            window.location.reload();
+        }
+    };
+
     if (!isOpen) return null;
 
     return (
@@ -112,7 +101,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 text-brand">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
                         </svg>
-                        设置与管理
+                        资源站管理
                         {isLoading && <span className="text-xs font-normal text-gray-500 animate-pulse ml-2">(同步中...)</span>}
                     </h2>
                     <button onClick={onClose} className="text-gray-400 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors">
@@ -122,54 +111,37 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto custom-scrollbar">
-                    {/* PWA Install Section (Visible to everyone if installable) */}
-                    {canInstall && (
-                        <div className="p-4 mx-4 mt-4 bg-brand/10 border border-brand/20 rounded-xl flex items-center justify-between gap-4 animate-slide-up">
-                            <div>
-                                <h3 className="text-sm font-bold text-brand">安装 CineStream</h3>
-                                <p className="text-xs text-gray-400">将应用添加到桌面，享受沉浸式观影体验。</p>
-                            </div>
-                            <button 
-                                onClick={handleInstallApp}
-                                className="bg-brand text-black text-xs font-bold px-4 py-2 rounded-lg hover:bg-brand-hover transition-colors whitespace-nowrap"
-                            >
-                                立即安装
-                            </button>
-                        </div>
-                    )}
-
-                    {!isAuthenticated ? (
-                        <div className="flex flex-col items-center justify-center p-8 space-y-6">
-                            <div className="bg-white/5 p-4 rounded-full">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-10 h-10 text-gray-400">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-                                </svg>
-                            </div>
-                            <div className="text-center">
-                                <h3 className="text-lg font-bold text-white">管理员后台</h3>
-                                <p className="text-xs text-gray-500 mt-1">验证身份以管理全局资源站</p>
-                            </div>
-                            <form onSubmit={handleLogin} className="w-full max-w-xs space-y-4">
-                                <div>
-                                    <input 
-                                        type="password" 
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        placeholder="请输入管理密码"
-                                        className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-center text-white tracking-widest focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand/50 transition-all"
-                                        autoFocus
-                                    />
-                                    {error && <p className="text-red-500 text-xs text-center mt-2 animate-bounce">{error}</p>}
-                                </div>
-                                <button type="submit" className="w-full bg-brand text-black font-bold py-3 rounded-lg hover:bg-brand-hover transition-colors">
-                                    进入后台
-                                </button>
-                            </form>
-                        </div>
-                    ) : (
-                        <div className="p-4 md:p-6 space-y-6 bg-black/20">
-                            <div className="space-y-3">
+                {!isAuthenticated ? (
+                    <div className="flex-1 flex flex-col items-center justify-center p-8 space-y-6">
+                         <div className="bg-white/5 p-4 rounded-full">
+                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-10 h-10 text-gray-400">
+                                 <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                             </svg>
+                         </div>
+                         <h3 className="text-lg font-bold text-white">管理员验证</h3>
+                         <form onSubmit={handleLogin} className="w-full max-w-xs space-y-4">
+                             <div>
+                                 <input 
+                                    type="password" 
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    placeholder="请输入管理密码"
+                                    className="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-center text-white tracking-widest focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand/50 transition-all"
+                                    autoFocus
+                                 />
+                                 {error && <p className="text-red-500 text-xs text-center mt-2 animate-bounce">{error}</p>}
+                             </div>
+                             <button type="submit" className="w-full bg-brand text-black font-bold py-3 rounded-lg hover:bg-brand-hover transition-colors">
+                                 进入后台
+                             </button>
+                         </form>
+                    </div>
+                ) : (
+                    <>
+                        <div className="p-4 md:p-6 overflow-y-auto custom-scrollbar flex-1 bg-black/20">
+                            
+                            {/* Source List */}
+                            <div className="space-y-3 mb-6">
                                 {sources.map(source => (
                                     <div key={source.id} className="bg-gray-800/50 border border-white/5 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:border-white/20 transition-all">
                                         <div className="flex-1 min-w-0">
@@ -197,12 +169,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                                 ))}
                             </div>
 
+                            {/* Add Form */}
                             {showAdd ? (
                                 <form onSubmit={handleAdd} className="bg-gray-800/80 border border-brand/30 rounded-xl p-4 animate-slide-up">
-                                    <h3 className="font-bold text-white mb-4">添加新源</h3>
+                                    <h3 className="font-bold text-white mb-4">添加新源 (Add New Source)</h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                                         <div>
-                                            <label className="block text-xs text-gray-400 mb-1">名称</label>
+                                            <label className="block text-xs text-gray-400 mb-1">名称 (Name)</label>
                                             <input 
                                                 type="text" 
                                                 value={newName} 
@@ -213,7 +186,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-xs text-gray-400 mb-1">API 地址</label>
+                                            <label className="block text-xs text-gray-400 mb-1">API 地址 (Maccms XML/JSON)</label>
                                             <input 
                                                 type="url" 
                                                 value={newApi} 
@@ -241,19 +214,18 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                                 </button>
                             )}
                         </div>
-                    )}
-                </div>
 
-                <div className="p-4 bg-gray-900/80 border-t border-white/10 flex justify-between items-center">
-                    {isAuthenticated ? (
-                        <button onClick={handleReset} className="text-xs text-gray-500 hover:text-red-400 underline">恢复默认配置</button>
-                    ) : (
-                        <div />
-                    )}
-                    <button onClick={onClose} className="bg-white/10 hover:bg-white/20 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors">
-                        关闭
-                    </button>
-                </div>
+                        <div className="p-4 bg-gray-900/80 border-t border-white/10 flex justify-between items-center gap-4">
+                            <div className="flex items-center gap-4">
+                                <button onClick={handleReset} className="text-xs text-gray-500 hover:text-red-400 underline">恢复默认配置</button>
+                                <button onClick={onClearCache} className="text-xs text-gray-500 hover:text-brand underline">清理全站缓存</button>
+                            </div>
+                            <button onClick={onClose} className="bg-white/10 hover:bg-white/20 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors">
+                                关闭
+                            </button>
+                        </div>
+                    </>
+                )}
             </div>
         </div>
     );

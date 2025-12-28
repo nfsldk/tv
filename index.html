@@ -2,33 +2,40 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="referrer" content="no-referrer" />
-    <meta name="keywords" content="免费电影,高清影视,在线观看,CineStream,美剧,韩剧,动漫,综艺,P2P加速" />
-    <meta name="description" content="CineStream AI - 您的智能免费影视库。提供海量高清电影、电视剧、动漫和综艺在线观看，支持智能P2P加速与AI助手互动。" />
     
     <!-- PWA Meta Tags -->
-    <meta name="theme-color" content="#020617" />
-    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#22c55e" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="CineStream" />
-    <link rel="manifest" href="./manifest.json" />
-    <link rel="apple-touch-icon" href="./favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.json" />
 
-    <title>CineStream AI - 免费高清影视 | 智能P2P加速</title>
-    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <!-- SEO 核心标签 -->
+    <title>CineStream AI - 免费高清影视聚合平台 | 智能P2P加速秒播</title>
+    <meta name="keywords" content="CineStream,免费电影,高清影视,在线观看,美剧,韩剧,动漫,综艺,P2P加速,Gemini AI,影视搜索" />
+    <meta name="description" content="CineStream AI 是一个基于人工智能驱动的免费高清影视聚合平台。集成智能 P2P 加速技术，支持多源秒播，内置 Gemini AI 助手为您推荐优质影片，享受极致观影体验。" />
+    <link rel="canonical" href="https://cinestream-ai.vercel.app/" />
+    <meta name="robots" content="index, follow" />
+
+    <!-- 预连通关键节点 -->
+    <link rel="preconnect" href="https://aistudiocdn.com" crossorigin>
+    <link rel="preconnect" href="https://img9.doubanio.com" crossorigin>
+    <link rel="preconnect" href="https://images.weserv.nl" crossorigin>
+    <link rel="dns-prefetch" href="https://daili.laibo123.dpdns.org">
+
+    <!-- 核心库预加载 -->
+    <link rel="modulepreload" href="https://aistudiocdn.com/react@^19.2.1">
+    <link rel="modulepreload" href="https://aistudiocdn.com/react-dom@^19.2.1/">
+    <link rel="modulepreload" href="https://aistudiocdn.com/react-router-dom@^7.10.1">
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
-        // PWA Install Event Capture
-        window.deferredPrompt = null;
-        window.addEventListener('beforeinstallprompt', (e) => {
-            e.preventDefault();
-            window.deferredPrompt = e;
-            window.dispatchEvent(new CustomEvent('pwa-installable'));
-        });
-
         tailwind.config = {
             theme: {
                 extend: {
@@ -38,10 +45,24 @@
                         brand: "#22c55e",
                         "brand-hover": "#4ade80",
                     },
-                    animation: { 'fade-in': 'fadeIn 0.5s ease-out', 'slide-up': 'slideUp 0.3s ease-out' },
+                    animation: {
+                        'fade-in': 'fadeIn 0.5s ease-out',
+                        'slide-up': 'slideUp 0.3s ease-out',
+                        'shimmer': 'shimmer 2s infinite linear',
+                    },
                     keyframes: {
-                        fadeIn: { '0%': { opacity: '0', transform: 'translateY(10px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
-                        slideUp: { '0%': { opacity: '0', transform: 'translateY(20px) scale(0.95)' }, '100%': { opacity: '1', transform: 'translateY(0) scale(1)' } }
+                        fadeIn: {
+                            '0%': { opacity: '0', transform: 'translateY(10px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        },
+                        slideUp: {
+                            '0%': { opacity: '0', transform: 'translateY(20px) scale(0.95)' },
+                            '100%': { opacity: '1', transform: 'translateY(0) scale(1)' },
+                        },
+                        shimmer: {
+                            '0%': { backgroundPosition: '-1000px 0' },
+                            '100%': { backgroundPosition: '1000px 0' },
+                        }
                     }
                 },
             },
@@ -49,13 +70,49 @@
     </script>
     
     <style>
-        body { background-color: #020617; -webkit-tap-highlight-color: transparent; }
+        :root {
+            --sat: env(safe-area-inset-top);
+            --sar: env(safe-area-inset-right);
+            --sab: env(safe-area-inset-bottom);
+            --sal: env(safe-area-inset-left);
+        }
+        body {
+            background-color: #020617;
+            background-image:
+                radial-gradient(at 0% 0%, rgba(34, 197, 94, 0.08) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(6, 182, 212, 0.08) 0px, transparent 50%);
+            background-attachment: fixed;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none; /* 防止长按选中文本干扰菜单 */
+        }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .cv-auto {
+            content-visibility: auto;
+            contain-intrinsic-size: 0 400px;
+        }
+
+        .skeleton-shimmer {
+            background: linear-gradient(90deg, rgba(31, 41, 55, 0.5) 25%, rgba(55, 65, 81, 0.8) 50%, rgba(31, 41, 55, 0.5) 75%);
+            background-size: 1000px 100%;
+        }
+
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.3); border-radius: 4px; }
-        #fail-safe-overlay { display: none; position: fixed; inset: 0; z-index: 9999; background: #020617; color: white; padding: 2rem; text-align: center; flex-direction: column; align-items: center; justify-content: center; }
+
+        .safe-area-bottom {
+            padding-bottom: var(--sab);
+        }
+        
+        /* 移动端点击缩放反馈 */
+        @media (max-width: 1024px) {
+            button:active, .cursor-pointer:active {
+                transform: scale(0.96);
+                opacity: 0.8;
+            }
+        }
     </style>
 <script type="importmap">
 {
@@ -67,7 +124,7 @@
     "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.10.1",
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
-    "hls.js": "https://aistudiocdn.com/hls.js@1.6.13",
+    "hls.js": "https://aistudiocdn.com/hls.js@^1.6.15",
     "swarmcloud-hls": "https://aistudiocdn.com/swarmcloud-hls@^2.17.2",
     "artplayer": "https://aistudiocdn.com/artplayer@^5.3.0",
     "artplayer-plugin-danmuku": "https://aistudiocdn.com/artplayer-plugin-danmuku@^5.2.0",
@@ -77,35 +134,8 @@
 </script>
 </head>
 <body class="text-gray-200">
+    <h1 class="sr-only">CineStream AI - 免费高清影视聚合播放平台</h1>
     <div id="root"></div>
-
-    <!-- 容错层：当 JS 依赖加载失败或网络被屏蔽时显示 -->
-    <div id="fail-safe-overlay">
-        <h2 class="text-2xl font-bold mb-4">连接似乎受到了限制</h2>
-        <p class="text-gray-400 mb-6 max-w-md">当前网络环境下可能无法直接加载必要的库。请检查您的网络代理，或尝试手动配置代理地址。</p>
-        <div class="flex gap-4">
-            <button onclick="location.reload()" class="bg-brand text-black px-6 py-2 rounded-lg font-bold">重试加载</button>
-            <button onclick="window.dispatchEvent(new CustomEvent('open-emergency-settings'))" class="bg-white/10 text-white px-6 py-2 rounded-lg border border-white/20">配置代理</button>
-        </div>
-    </div>
-
-    <script type="module" src="./index.tsx"></script>
-
-    <script>
-        // 自检逻辑：如果 10 秒后 React 还没有挂载内容，说明加载失败
-        setTimeout(() => {
-            const root = document.getElementById('root');
-            if (root && root.innerHTML === '') {
-                document.getElementById('fail-safe-overlay').style.display = 'flex';
-            }
-        }, 10000);
-
-        // Service Worker 注册
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js').catch(() => {});
-            });
-        }
-    </script>
+    <script type="module" src="/index.tsx"></script>
 </body>
 </html>

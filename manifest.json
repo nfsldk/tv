@@ -1,31 +1,33 @@
 {
   "name": "CineStream AI",
   "short_name": "CineStream",
+  "description": "智能 AI 驱动的高清影视聚合平台",
   "start_url": "/",
-  "scope": "/",
   "display": "standalone",
   "background_color": "#020617",
-  "theme_color": "#020617",
-  "orientation": "any",
-  "description": "智能高清影视聚合平台，P2P加速与AI观影助手。",
+  "theme_color": "#22c55e",
+  "orientation": "portrait-primary",
   "icons": [
     {
       "src": "/favicon.svg",
+      "sizes": "32x32 48x48 72x72 96x96 128x128 256x256 512x512",
       "type": "image/svg+xml",
-      "sizes": "any",
       "purpose": "any"
     },
     {
       "src": "/favicon.svg",
-      "type": "image/svg+xml",
-      "sizes": "192x192",
-      "purpose": "maskable"
-    },
-    {
-      "src": "/favicon.svg",
-      "type": "image/svg+xml",
       "sizes": "512x512",
+      "type": "image/svg+xml",
       "purpose": "maskable"
+    }
+  ],
+  "categories": ["entertainment", "video"],
+  "shortcuts": [
+    {
+      "name": "搜索影片",
+      "short_name": "搜索",
+      "url": "/sousuo",
+      "icons": [{ "src": "/favicon.svg", "sizes": "192x192" }]
     }
   ]
 }
