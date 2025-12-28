@@ -14,7 +14,7 @@ const GeminiChat: React.FC<GeminiChatProps> = ({ currentMovie }) => {
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  // Fix: Use Chat type from @google/genai
+  // Use Chat type from the GenAI SDK
   const chatSessionRef = useRef<Chat | null>(null);
 
   useEffect(() => {
@@ -25,13 +25,12 @@ const GeminiChat: React.FC<GeminiChatProps> = ({ currentMovie }) => {
 
   // Re-initialize chat session when the movie context changes
   useEffect(() => {
-      // Fix: Direct use of process.env.API_KEY as per guidelines
-      const apiKey = process.env.API_KEY;
-      if (!apiKey) return;
+      // Direct use of process.env.API_KEY as per guidelines
+      if (!process.env.API_KEY) return;
 
       try {
-          // Fix: Proper initialization of GoogleGenAI
-          const ai = new GoogleGenAI({ apiKey });
+          // Initialize using direct access to the environment variable
+          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
           
           let systemInstruction = "你是一个幽默、知识渊博的电影助手。请用中文简练地回答。";
           if (currentMovie) {
@@ -49,7 +48,7 @@ const GeminiChat: React.FC<GeminiChatProps> = ({ currentMovie }) => {
               systemInstruction += "用户目前在首页浏览。";
           }
 
-          // Fix: Use 'gemini-3-flash-preview' for basic text tasks
+          // Selecting gemini-3-flash-preview for conversational text tasks
           chatSessionRef.current = ai.chats.create({
               model: 'gemini-3-flash-preview',
               config: { systemInstruction }
@@ -70,29 +69,27 @@ const GeminiChat: React.FC<GeminiChatProps> = ({ currentMovie }) => {
       setMessages(prev => [...prev, { role: 'user', text: userText }]);
       setIsLoading(true);
 
-      const apiKey = process.env.API_KEY;
-      if (!apiKey) {
+      if (!process.env.API_KEY) {
            setMessages(prev => [...prev, { role: 'model', text: "请配置 API Key 以使用此功能。" }]);
            setIsLoading(false);
            return;
       }
 
       try {
-          // Fix: Ensure session exists before sending
+          // Re-initialize chat using direct API Key access if session is null
           if (!chatSessionRef.current) {
-               const ai = new GoogleGenAI({ apiKey });
+               const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
                chatSessionRef.current = ai.chats.create({
                   model: 'gemini-3-flash-preview',
                   config: { systemInstruction: "你是一个幽默、知识渊博的电影助手。" }
                });
           }
 
-          // Fix: Correct usage of sendMessage with message parameter
+          // Use .text property directly to get the response string
           const response: GenerateContentResponse = await chatSessionRef.current.sendMessage({
               message: userText
           });
 
-          // Fix: Access .text property directly (not a method)
           const reply = response.text || "抱歉，我没有理解您的问题。";
           setMessages(prev => [...prev, { role: 'model', text: reply }]);
       } catch (error: any) {

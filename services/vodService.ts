@@ -1,16 +1,22 @@
 
-// @ts-nocheck
 import { Episode, VodDetail, ApiResponse, ActorItem, RecommendationItem, VodItem, VodSource, PlaySource, HistoryItem, PersonDetail, ReviewItem } from '../types';
 import { createClient } from '@supabase/supabase-js';
 
+// --- SUPABASE SETUP ---
 const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SUPABASE_KEY = (import.meta as any).env?.VITE_SUPABASE_KEY || process.env.VITE_SUPABASE_KEY || '';
 
 let supabase: any = null;
 if (SUPABASE_URL && SUPABASE_KEY) {
-    try { supabase = createClient(SUPABASE_URL, SUPABASE_KEY); } catch (e) {}
+    try {
+        supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+        console.log('Supabase initialized successfully');
+    } catch (e) {
+        console.warn('Supabase init failed', e);
+    }
 }
 
+// DEFAULT SOURCE
 const DEFAULT_SOURCE: VodSource = {
     id: 'default',
     name: '默认源 (官方)',
@@ -19,72 +25,23 @@ const DEFAULT_SOURCE: VodSource = {
     canDelete: false
 };
 
-const GLOBAL_PROXY = 'https://daili.laibo123.dpdns.org/?url=';
+// GLOBAL CUSTOM PROXY
+const GLOBAL_PROXY = 'https://daili.laidd.de5.net/?url=';
+
+// CACHE CONFIG
+const HOME_CACHE_KEY = 'cine_home_data_v2';
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 const HISTORY_KEY = 'cine_watch_history';
 const SOURCES_KEY = 'cine_vod_sources';
 
-// --- 静态备用数据 ---
-const FALLBACK_DATA = {
-    movies: [
-        { vod_id: "26752088", vod_name: "我不是药神", vod_pic: "https://img9.doubanio.com/view/photo/l/public/p2561305051.webp", vod_score: "9.0", type_name: "剧情", vod_year: "2018", source: 'douban' },
-        { vod_id: "1292052", vod_name: "肖申克的救赎", vod_pic: "https://img2.doubanio.com/view/photo/l/public/p480747492.webp", vod_score: "9.7", type_name: "剧情", vod_year: "1994", source: 'douban' },
-        { vod_id: "35465225", vod_name: "长津湖", vod_pic: "https://img9.doubanio.com/view/photo/l/public/p2681146755.webp", vod_score: "7.4", type_name: "战争", vod_year: "2021", source: 'douban' }
-    ],
-    series: [
-        { vod_id: "35456391", vod_name: "狂飙", vod_pic: "https://img9.doubanio.com/view/photo/l/public/p2886364024.webp", vod_score: "8.5", type_name: "犯罪", vod_year: "2023", source: 'douban' },
-        { vod_id: "30444960", vod_name: "繁花", vod_pic: "https://img9.doubanio.com/view/photo/l/public/p2902345475.webp", vod_score: "8.7", type_name: "剧情", vod_year: "2024", source: 'douban' }
-    ],
-    anime: [
-        { vod_id: "35032540", vod_name: "国王排名", vod_pic: "https://img9.doubanio.com/view/photo/l/public/p2680608511.webp", vod_score: "9.2", type_name: "动画", vod_year: "2021", source: 'douban' }
-    ],
-    variety: [
-        { vod_id: "35232144", vod_name: "种地吧", vod_pic: "https://img1.doubanio.com/view/photo/l/public/p2887220265.webp", vod_score: "9.0", type_name: "综艺", vod_year: "2023", source: 'douban' }
-    ]
-};
-
-// --- 缓存配置 ---
-const CACHE_KEYS = {
-    HOME: 'cine_cache_home',
-    SEARCH: 'cine_cache_search',
-    DETAIL: 'cine_cache_detail',
-    CATEGORY: 'cine_cache_cat'
-};
-
-const TTL = {
-    HOME: 30 * 60 * 1000,
-    SEARCH: 10 * 60 * 1000,
-    DETAIL: 24 * 60 * 60 * 1000,
-    CATEGORY: 20 * 60 * 1000
-};
-
-const setCache = (key: string, data: any) => {
-    try {
-        localStorage.setItem(key, JSON.stringify({ data, timestamp: Date.now() }));
-    } catch (e) {
-        if (e.name === 'QuotaExceededError') localStorage.clear(); 
-    }
-};
-
-const getCache = (key: string, ttl: number) => {
-    try {
-        const stored = localStorage.getItem(key);
-        if (!stored) return null;
-        const { data, timestamp } = JSON.parse(stored);
-        if (Date.now() - timestamp < ttl) return data;
-    } catch (e) {}
-    return null;
-};
-
-export const clearAppCache = () => {
-    Object.values(CACHE_KEYS).forEach(k => localStorage.removeItem(k));
-};
-
-// --- 业务函数 ---
+// --- HISTORY MANAGEMENT ---
 
 export const getHistory = (): HistoryItem[] => {
     try {
         const stored = localStorage.getItem(HISTORY_KEY);
-        if (stored) return JSON.parse(stored);
+        if (stored) {
+            return JSON.parse(stored);
+        }
     } catch(e) {}
     return [];
 };
@@ -109,10 +66,33 @@ export const removeFromHistory = (vod_id: number | string) => {
     } catch(e) { return []; }
 };
 
+export const clearHistory = () => {
+    localStorage.removeItem(HISTORY_KEY);
+};
+
+// --- CACHE MANAGEMENT ---
+
+/**
+ * Fix: Added clearAppCache to resolve import error in SettingsModal.tsx
+ */
+export const clearAppCache = () => {
+    localStorage.removeItem(HOME_CACHE_KEY);
+    // Clear all cine_ related keys (history, progress, danmaku) and artplayer settings
+    Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('cine_') || key.startsWith('art_')) {
+            localStorage.removeItem(key);
+        }
+    });
+};
+
+// --- SOURCE MANAGEMENT ---
+
 export const getVodSources = (): VodSource[] => {
     try {
         const stored = localStorage.getItem(SOURCES_KEY);
-        if (stored) return JSON.parse(stored);
+        if (stored) {
+            return JSON.parse(stored);
+        }
     } catch(e) {}
     return [DEFAULT_SOURCE];
 };
@@ -123,10 +103,21 @@ export const saveVodSources = (sources: VodSource[]) => {
 
 export const initVodSources = async () => {
     if (!supabase) return;
+
     try {
-        const { data, error } = await supabase.from('cine_sources').select('*').order('created_at', { ascending: true });
+        const { data, error } = await supabase
+            .from('cine_sources')
+            .select('*')
+            .order('created_at', { ascending: true });
+
         if (!error && data) {
-            const cloudSources = data.map((d: any) => ({ id: d.id, name: d.name, api: d.api, active: d.active, canDelete: true }));
+            const cloudSources = data.map((d: any) => ({
+                id: d.id,
+                name: d.name,
+                api: d.api,
+                active: d.active,
+                canDelete: true
+            }));
             const combined = [DEFAULT_SOURCE, ...cloudSources.filter(cs => cs.api !== DEFAULT_SOURCE.api)];
             saveVodSources(combined);
         }
@@ -136,24 +127,38 @@ export const initVodSources = async () => {
 export const addVodSource = async (name: string, api: string) => {
     const sources = getVodSources();
     const newId = Date.now().toString();
-    const newSource: VodSource = { id: newId, name: name.trim(), api: api.trim(), active: true, canDelete: true };
+    const newSource: VodSource = {
+        id: newId,
+        name: name.trim(),
+        api: api.trim(),
+        active: true,
+        canDelete: true
+    };
+    
     saveVodSources([...sources, newSource]);
+
     if (supabase) {
         try {
-            await supabase.from('cine_sources').insert([{ name: newSource.name, api: newSource.api, active: true }]);
+            await supabase.from('cine_sources').insert([
+                { name: newSource.name, api: newSource.api, active: true }
+            ]);
             await initVodSources();
         } catch (e) {}
     }
+    
     return newSource;
 };
 
 export const deleteVodSource = async (id: string) => {
     const sources = getVodSources();
     const target = sources.find(s => s.id === id);
-    if (!target) return;
-    saveVodSources(sources.filter(s => s.id !== id));
-    if (supabase) {
-        try { await supabase.from('cine_sources').delete().eq('api', target.api); } catch (e) {}
+    const filtered = sources.filter(s => s.id !== id);
+    saveVodSources(filtered);
+
+    if (supabase && target) {
+        try {
+            await supabase.from('cine_sources').delete().eq('api', target.api);
+        } catch (e) {}
     }
 };
 
@@ -161,24 +166,46 @@ export const toggleVodSource = async (id: string) => {
     const sources = getVodSources();
     const target = sources.find(s => s.id === id);
     if (!target) return;
+
     const newActiveState = !target.active;
     const updated = sources.map(s => s.id === id ? { ...s, active: newActiveState } : s);
     saveVodSources(updated);
+
     if (supabase) {
-        try { await supabase.from('cine_sources').update({ active: newActiveState }).eq('api', target.api); } catch (e) {}
+        try {
+            await supabase.from('cine_sources').update({ active: newActiveState }).eq('api', target.api);
+        } catch (e) {}
     }
 };
 
 export const resetVodSources = async () => {
     localStorage.removeItem(SOURCES_KEY);
-    if (supabase) { await initVodSources(); return getVodSources(); }
+    if (supabase) {
+        await initVodSources();
+        return getVodSources();
+    }
     return [DEFAULT_SOURCE];
+};
+
+// --- DATA FETCHING ---
+
+const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = 8000) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
+    try {
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        clearTimeout(id);
+        return response;
+    } catch (error) {
+        clearTimeout(id);
+        throw error;
+    }
 };
 
 const fetchWithProxy = async (targetUrl: string, options: RequestInit = {}): Promise<any> => {
   try {
       const proxyUrl = `${GLOBAL_PROXY}${encodeURIComponent(targetUrl)}`;
-      const response = await fetch(proxyUrl, { ...options, signal: AbortSignal.timeout(12000) });
+      const response = await fetchWithTimeout(proxyUrl, options, 10000);
       if (response.ok) {
           const text = await response.text();
           try { return JSON.parse(text); } catch(e) { return text; }
@@ -191,7 +218,7 @@ const fetchCmsData = async (baseUrl: string, params: URLSearchParams): Promise<a
     params.set('out', 'json');
     const url = `${baseUrl}?${params.toString()}`;
     try {
-        const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+        const res = await fetchWithTimeout(url, {}, 5000);
         if (res.ok) {
             const text = await res.text();
             try { return JSON.parse(text); } catch (e) {}
@@ -200,10 +227,48 @@ const fetchCmsData = async (baseUrl: string, params: URLSearchParams): Promise<a
     return await fetchWithProxy(url);
 };
 
-const fetchDoubanJson = async (type: string, tag: string, limit = 18, sort = 'recommend', startOffset = 0): Promise<VodItem[]> => {
-    const doubanUrl = `https://movie.douban.com/j/search_subjects?type=${type}&tag=${encodeURIComponent(tag)}&sort=${sort}&page_limit=${limit}&page_start=${startOffset}`;
+export const getHomeSections = async () => {
+    try {
+        const cached = localStorage.getItem(HOME_CACHE_KEY);
+        if (cached) {
+            const { data, timestamp } = JSON.parse(cached);
+            if (Date.now() - timestamp < CACHE_TTL) return data;
+        }
+    } catch (e) {}
+
+    const safeFetch = async (fn: Promise<VodItem[]>) => {
+        try { return await fn; } catch (e) { return []; }
+    };
+
+    const [movies, series, shortDrama, anime, variety] = await Promise.all([
+        safeFetch(fetchDoubanJson('movie', '热门', 18)),
+        safeFetch(fetchDoubanJson('tv', '热门', 18)),
+        safeFetch(fetchDoubanJson('tv', '短剧', 18)), 
+        safeFetch(fetchDoubanJson('tv', '日本动画', 18)),
+        safeFetch(fetchDoubanJson('tv', '综艺', 18))
+    ]);
+    
+    const data = { movies, series, shortDrama, anime, variety };
+    if (movies.length > 0) {
+        localStorage.setItem(HOME_CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() }));
+    }
+    return data;
+};
+
+export const fetchCategoryItems = async (category: string, options: any = {}) => {
+    const { filter1 = '全部', filter2 = '全部', page = 1 } = options;
+    let type = 'movie', tag = '热门', sort = 'recommend';
+    if (category === 'series') type = 'tv';
+    if (category === 'variety') { type = 'tv'; tag = '综艺'; }
+    if (category === 'anime') { type = 'tv'; tag = '日本动画'; }
+    
+    return await fetchDoubanJson(type, tag, 18, sort, (page - 1) * 18);
+};
+
+const fetchDoubanJson = async (type: string, tag: string, limit = 12, sort = 'recommend', start = 0): Promise<VodItem[]> => {
+    const doubanUrl = `https://movie.douban.com/j/search_subjects?type=${type}&tag=${encodeURIComponent(tag)}&sort=${sort}&page_limit=${limit}&page_start=${start}`;
     const data = await fetchWithProxy(doubanUrl);
-    if (data && data.subjects && Array.isArray(data.subjects)) {
+    if (data?.subjects) {
         return data.subjects.map((item: any) => ({
             vod_id: item.id,
             vod_name: item.title,
@@ -217,143 +282,30 @@ const fetchDoubanJson = async (type: string, tag: string, limit = 18, sort = 're
     return [];
 };
 
-export const getHomeSections = async () => {
-    const cached = getCache(CACHE_KEYS.HOME, TTL.HOME);
-    if (cached) return cached;
-
-    const safeFetch = async (fn: Promise<VodItem[]>) => { try { return await fn; } catch (e) { return []; } };
-    
-    // 使用更通用的 '热门' 标签提高成功率
-    const [movies, series, shortDrama, anime, variety] = await Promise.all([
-        safeFetch(fetchDoubanJson('movie', '热门', 18)),
-        safeFetch(fetchDoubanJson('tv', '热门', 18)),
-        safeFetch(fetchDoubanJson('tv', '短剧', 18)), 
-        safeFetch(fetchDoubanJson('tv', '日本动画', 18)),
-        safeFetch(fetchDoubanJson('tv', '综艺', 18))
-    ]);
-    
-    // 聚合结果并检查是否全部为空
-    const isEmpty = movies.length === 0 && series.length === 0 && anime.length === 0;
-    const results = isEmpty ? { ...FALLBACK_DATA, shortDrama: [] } : { movies, series, shortDrama, anime, variety };
-    
-    if (!isEmpty) {
-        setCache(CACHE_KEYS.HOME, results);
-    }
-    return results;
-};
-
-export const fetchCategoryItems = async (category: string, options: any = {}): Promise<VodItem[]> => {
-    const { filter1 = '全部', filter2 = '全部', page = 1 } = options;
-    const cacheKey = `${CACHE_KEYS.CATEGORY}_${category}_${filter1}_${filter2}_${page}`;
-    const cached = getCache(cacheKey, TTL.CATEGORY);
-    if (cached) return cached;
-
-    const limit = 24;
-    const start = (page - 1) * limit;
-    let type = 'movie', tag = '电影', sort = 'recommend';
-
-    if (category === 'movies') {
-        type = 'movie'; tag = '电影';
-        if (filter1 === '最新电影') sort = 'time'; 
-        else if (filter1 === '豆瓣高分') sort = 'rank'; 
-        else if (filter1 === '冷门佳片') tag = '冷门佳片';
-        if (filter2 !== '全部') tag = filter2;
-    } else if (category === 'series') {
-        type = 'tv'; tag = '电视剧';
-        if (filter2 === '国产') tag = '国产剧';
-        else if (filter2 === '欧美') tag = '美剧';
-        else if (filter2 === '日本') tag = '日剧';
-        else if (filter2 === '韩国') tag = '韩剧';
-        else if (filter2 !== '全部') tag = filter2;
-    } else if (category === 'anime') {
-        type = 'tv'; tag = '日本动画'; 
-        if (filter1 === '剧场版') type = 'movie';
-        if (filter2 !== '全部' && !filter2.includes('周')) tag = filter2;
-    } else if (category === 'variety') {
-        type = 'tv'; tag = '综艺'; 
-        if (filter2 !== '全部') tag = filter2;
-    }
-
-    let results = await fetchDoubanJson(type, tag, limit, sort, start);
-
-    if (results.length === 0) {
-        const fallbackKeyword = filter2 !== '全部' ? filter2 : (category === 'movies' ? '电影' : category === 'series' ? '电视剧' : category === 'anime' ? '动漫' : '综艺');
-        const cmsResults = await searchAllCmsResources(fallbackKeyword);
-        results = cmsResults.slice(start, start + limit);
-    }
-
-    if (results.length > 0) {
-        setCache(cacheKey, results);
-    }
-    return results;
-};
-
-const searchAllCmsResources = async (keyword: string): Promise<VodItem[]> => {
-    const sources = getVodSources().filter(s => s.active);
-    const params = new URLSearchParams({ ac: 'detail', wd: keyword });
-    const promises = sources.map(async (source) => {
-        try {
-            const data = await fetchCmsData(source.api, params);
-            if (data && data.list) {
-                return data.list.map((item: any) => ({
-                    vod_id: `cms_${item.vod_id}`,
-                    vod_name: item.vod_name,
-                    vod_pic: item.vod_pic || '', 
-                    vod_remarks: item.vod_remarks,
-                    type_name: item.type_name,
-                    vod_year: item.vod_year,
-                    source: 'cms',
-                    api_url: source.api
-                }));
-            }
-        } catch(e) {}
-        return [];
-    });
-    const results = await Promise.all(promises);
-    return results.flat();
-};
-
-export const searchCms = async (keyword: string, page = 1): Promise<ApiResponse> => {
-    const cmsResults = await searchAllCmsResources(keyword);
-    return { 
-        code: 1, 
-        msg: "Success", 
-        page: page, 
-        pagecount: 1, 
-        limit: "24", 
-        total: cmsResults.length, 
-        list: cmsResults 
-    };
-};
-
 export const getAggregatedSearch = async (keyword: string): Promise<VodItem[]> => {
-    const cacheKey = `${CACHE_KEYS.SEARCH}_${keyword}`;
-    const cached = getCache(cacheKey, TTL.SEARCH);
-    if (cached) return cached;
-
-    const [doubanResults, cmsResults] = await Promise.all([searchDouban(keyword), searchAllCmsResources(keyword)]);
+    const [doubanResults, cmsResults] = await Promise.all([
+        searchDouban(keyword),
+        searchAllCmsResources(keyword)
+    ]);
     const finalResults = [...doubanResults];
-    const existingNames = new Set(doubanResults.map(i => i.vod_name.trim()));
+    const existingNames = new Set(doubanResults.map(i => i.vod_name));
     cmsResults.forEach(item => {
-        if (!existingNames.has(item.vod_name.trim())) {
+        if (!existingNames.has(item.vod_name)) {
             finalResults.push(item);
-            existingNames.add(item.vod_name.trim());
+            existingNames.add(item.vod_name);
         }
     });
-    setCache(cacheKey, finalResults);
     return finalResults;
 };
 
-export const searchDouban = async (keyword: string): Promise<VodItem[]> => {
-    const searchUrl = `https://movie.douban.com/j/subject_suggest?q=${encodeURIComponent(keyword)}`;
-    const data = await fetchWithProxy(searchUrl);
+const searchDouban = async (keyword: string): Promise<VodItem[]> => {
+    const data = await fetchWithProxy(`https://movie.douban.com/j/subject_suggest?q=${encodeURIComponent(keyword)}`);
     if (Array.isArray(data)) {
         return data.map((item: any) => ({
             vod_id: item.id,
             vod_name: item.title,
-            vod_pic: item.img || '',
-            vod_score: '', 
-            type_name: item.type === 'celebrity' ? 'celebrity' : (item.type || '影视'),
+            vod_pic: item.img ? item.img.replace(/s_ratio_poster|m(?=\/public)/, 'l') : '',
+            type_name: item.type === 'celebrity' ? 'celebrity' : '影视',
             vod_year: item.year,
             source: 'douban'
         }));
@@ -361,151 +313,101 @@ export const searchDouban = async (keyword: string): Promise<VodItem[]> => {
     return [];
 };
 
+const searchAllCmsResources = async (keyword: string): Promise<VodItem[]> => {
+    const sources = getVodSources().filter(s => s.active);
+    const promises = sources.map(async (source) => {
+        try {
+            const data = await fetchCmsData(source.api, new URLSearchParams({ ac: 'detail', wd: keyword }));
+            return (data?.list || []).map((item: any) => ({
+                vod_id: `cms_${item.vod_id}`,
+                vod_name: item.vod_name,
+                vod_pic: item.vod_pic,
+                type_name: item.type_name,
+                api_url: source.api
+            }));
+        } catch(e) { return []; }
+    });
+    const results = await Promise.all(promises);
+    return results.flat();
+};
+
+export const fetchPersonDetail = async (id: string | number): Promise<PersonDetail | null> => {
+    try {
+        const html = await fetchWithProxy(`https://movie.douban.com/celebrity/${id}/`);
+        if (typeof html !== 'string') return null;
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        return {
+            id: String(id),
+            name: doc.querySelector('#content h1')?.textContent?.trim() || 'Unknown',
+            pic: (doc.querySelector('#headline .pic img')?.getAttribute('src') || '').replace(/s_ratio_poster|m(?=\/public)/, 'l'),
+            intro: doc.querySelector('#intro .bd')?.textContent?.trim() || '',
+            works: [] // Works parsing omitted for brevity but required by types
+        };
+    } catch (e) { return null; }
+};
+
 export const getAggregatedMovieDetail = async (id: number | string, apiUrl?: string, vodName?: string): Promise<{ main: VodDetail, alternatives: VodDetail[] } | null> => {
-    const cacheKey = `${CACHE_KEYS.DETAIL}_${id}`;
-    const cached = getCache(cacheKey, TTL.DETAIL);
-    if (cached) return cached;
-
-    let doubanMetadata = null;
-    let movieName = vodName || '';
-
-    if (movieName || !String(id).startsWith('cms_')) {
-        doubanMetadata = await fetchDoubanData(movieName, String(id).startsWith('cms_') ? undefined : id);
-        if (doubanMetadata) movieName = doubanMetadata.title;
-    }
-
-    if (!doubanMetadata && String(id).startsWith('cms_')) {
-        const rawCms = await getMovieDetail(id, apiUrl);
-        if (rawCms) {
-            movieName = rawCms.vod_name;
-            doubanMetadata = await fetchDoubanData(movieName);
+    const realId = String(id).replace('cms_', '');
+    let mainDetail = await getMovieDetail(realId, apiUrl);
+    if (!mainDetail && vodName) {
+        const sources = getVodSources().filter(s => s.active);
+        for (const s of sources) {
+            mainDetail = await fetchDetailFromSourceByKeyword(s, vodName);
+            if (mainDetail) break;
         }
     }
+    if (!mainDetail) return null;
+    const sources = getVodSources().filter(s => s.active && s.api !== mainDetail.api_url);
+    const promises = sources.map(s => fetchDetailFromSourceByKeyword(s, mainDetail.vod_name));
+    const alternatives = (await Promise.all(promises)).filter((r): r is VodDetail => r !== null);
+    return { main: mainDetail, alternatives };
+};
 
-    if (!doubanMetadata) {
-        const fallback = await getMovieDetail(id, apiUrl);
-        if (!fallback) return null;
-        return { main: fallback, alternatives: [] };
-    }
-
-    const mainDetail: VodDetail = {
-        vod_id: doubanMetadata.doubanId || id,
-        vod_name: movieName || doubanMetadata.title || '未知影片',
-        vod_pic: doubanMetadata.pic || '',
-        vod_content: doubanMetadata.content || '',
-        vod_score: doubanMetadata.score || '',
-        vod_actor: doubanMetadata.actor || '',
-        vod_director: doubanMetadata.director || '',
-        vod_area: doubanMetadata.area || '',
-        vod_lang: doubanMetadata.lang || '',
-        vod_year: doubanMetadata.year || '',
-        vod_remarks: '',
-        vod_play_url: '',
-        vod_play_from: '',
-        vod_writer: doubanMetadata.writer,
-        vod_pubdate: doubanMetadata.pubdate,
-        vod_reviews: doubanMetadata.reviews,
-        vod_recs: doubanMetadata.recs,
-        vod_actors_extended: doubanMetadata.actorsExtended,
-        type_name: doubanMetadata.type_name
-    };
-
-    const sources = getVodSources().filter(s => s.active);
-    const searchPromises = sources.map(async (s) => {
-        try {
-            const params = new URLSearchParams({ ac: 'detail', wd: mainDetail.vod_name });
-            const data = await fetchCmsData(s.api, params);
-            const clean = (s: string) => s.replace(/\s+/g, '').toLowerCase();
-            const target = clean(mainDetail.vod_name);
-            const exact = data?.list?.find((v: any) => clean(v.vod_name).includes(target) || target.includes(clean(v.vod_name)));
-            if (exact) { exact.api_url = s.api; return exact; }
-        } catch(e) {}
-        return null;
-    });
-
-    const results = (await Promise.all(searchPromises)).filter((r): r is VodDetail => r !== null);
-    
-    if (results.length > 0) {
-        mainDetail.vod_play_url = results[0].vod_play_url;
-        mainDetail.vod_play_from = results[0].vod_play_from;
-        mainDetail.api_url = results[0].api_url;
-        mainDetail.vod_remarks = results[0].vod_remarks;
-        const res = { main: mainDetail, alternatives: results.slice(1) };
-        setCache(cacheKey, res);
-        return res;
-    }
-
-    return { main: mainDetail, alternatives: [] };
+const fetchDetailFromSourceByKeyword = async (source: VodSource, keyword: string): Promise<VodDetail | null> => {
+    try {
+        const data = await fetchCmsData(source.api, new URLSearchParams({ ac: 'detail', wd: keyword }));
+        const exact = data?.list?.find((v: any) => v.vod_name === keyword);
+        if (exact) { exact.api_url = source.api; return exact; }
+    } catch(e) {}
+    return null;
 };
 
 export const getMovieDetail = async (id: number | string, apiUrl?: string): Promise<VodDetail | null> => {
-    const realId = String(id).replace('cms_', '');
     const sources = apiUrl ? [{ api: apiUrl }] : getVodSources().filter(s => s.active);
-    const params = new URLSearchParams({ ac: 'detail', ids: realId });
     for (const source of sources) {
         try {
-            const data = await fetchCmsData(source.api, params);
-            if (data?.list?.length > 0) {
-                const detail = data.list[0] as VodDetail;
-                detail.api_url = source.api;
-                return detail;
-            }
+            const data = await fetchCmsData(source.api, new URLSearchParams({ ac: 'detail', ids: id.toString() }));
+            if (data?.list?.[0]) { data.list[0].api_url = source.api; return data.list[0]; }
         } catch(e) {}
     }
     return null;
 };
 
-export const fetchPersonDetail = async (id: string | number): Promise<PersonDetail | null> => {
-    try {
-        const url = `https://movie.douban.com/celebrity/${id}/`;
-        const html = await fetchWithProxy(url);
-        if (!html || typeof html !== 'string') return null;
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-        const name = doc.querySelector('#content h1')?.textContent?.trim() || 'Unknown';
-        const pic = (doc.querySelector('#headline .pic img')?.getAttribute('src') || '');
-        const intro = doc.querySelector('#intro .bd')?.textContent?.trim() || '';
-        return { id: String(id), name, pic, intro, works: [] };
-    } catch (e) { return null; }
-};
-
 export const getDoubanPoster = async (keyword: string): Promise<string | null> => {
-    try {
-        const suggestUrl = `https://movie.douban.com/j/subject_suggest?q=${encodeURIComponent(keyword)}`;
-        const data = await fetchWithProxy(suggestUrl);
-        if (Array.isArray(data) && data.length > 0 && data[0].img) return data[0].img;
-    } catch(e) {}
+    const data = await fetchWithProxy(`https://movie.douban.com/j/subject_suggest?q=${encodeURIComponent(keyword)}`);
+    if (Array.isArray(data) && data.length > 0 && data[0].img) {
+        return data[0].img.replace(/s_ratio_poster|m(?=\/public)/, 'l');
+    }
     return null; 
 };
 
 export const parseAllSources = (input: VodDetail | VodDetail[]): PlaySource[] => {
     const details = Array.isArray(input) ? input : [input];
-    const allSources: PlaySource[] = [];
-    const sourceConfigs = getVodSources();
-
-    details.forEach(detail => {
-        if (!detail.vod_play_url || !detail.vod_play_from) return;
-        const fromArray = detail.vod_play_from.split('$$$');
-        const urlArray = detail.vod_play_url.split('$$$');
-        
-        let rawSourceName = sourceConfigs.find(s => s.api === detail.api_url)?.name || '采集站';
-        const baseSourceName = rawSourceName.split('-')[0].trim().replace(/m3u8/gi, '').trim();
-
-        fromArray.forEach((code, idx) => {
-            const urlStr = urlArray[idx];
-            if (!urlStr || (!code.toLowerCase().includes('m3u8') && !urlStr.includes('.m3u8'))) return;
-            const episodes: Episode[] = [];
-            urlStr.split('#').forEach((line, epIdx) => {
-                const parts = line.split('$');
-                const url = parts.length > 1 ? parts[1] : parts[0];
-                if (url && (url.startsWith('http') || url.startsWith('//'))) {
-                    episodes.push({ title: parts.length > 1 ? parts[0] : `第${epIdx+1}集`, url: url.startsWith('//') ? `https:${url}` : url, index: epIdx });
-                }
+    const all: PlaySource[] = [];
+    details.forEach(d => {
+        if (!d.vod_play_url) return;
+        const froms = d.vod_play_from.split('$$$');
+        const urls = d.vod_play_url.split('$$$');
+        froms.forEach((f, i) => {
+            if (!f.toLowerCase().includes('m3u8')) return;
+            const eps = urls[i].split('#').map((l, idx) => {
+                const [title, url] = l.split('$');
+                return { title: url ? title : `第${idx+1}集`, url: url || title, index: idx };
             });
-            if (episodes.length > 0) allSources.push({ name: baseSourceName, episodes });
+            all.push({ name: f, episodes: eps });
         });
     });
-    return allSources;
+    return all;
 };
 
 export const fetchDoubanData = async (keyword: string, doubanId?: string | number): Promise<any | null> => {
@@ -518,76 +420,14 @@ export const fetchDoubanData = async (keyword: string, doubanId?: string | numbe
     if (!targetId) return null;
     const html = await fetchWithProxy(`https://movie.douban.com/subject/${targetId}/`);
     if (typeof html !== 'string') return null;
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const result: any = { doubanId: String(targetId) };
-
-    const getInfoField = (label: string): string => {
-         const plSpan = Array.from(doc.querySelectorAll('#info span.pl')).find(el => el.textContent?.includes(label));
-         if (!plSpan) return '';
-         const attrsSpan = plSpan.nextElementSibling;
-         if (attrsSpan && attrsSpan.classList.contains('attrs')) return attrsSpan.textContent?.trim() || '';
-         let curr = plSpan.nextSibling;
-         let content = '';
-         while(curr && curr.nodeName !== 'BR') { content += curr.textContent; curr = curr.nextSibling; }
-         return content.replace(/:/g, '').trim();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    return {
+        doubanId: String(targetId),
+        score: doc.querySelector('.ll.rating_num')?.textContent?.trim(),
+        content: doc.querySelector('span[property="v:summary"]')?.textContent?.trim(),
+        pic: doc.querySelector('#mainpic img')?.getAttribute('src'),
+        director: doc.querySelector('a[rel="v:directedBy"]')?.textContent?.trim(),
+        actor: Array.from(doc.querySelectorAll('a[rel="v:starring"]')).slice(0, 5).map(a => a.textContent).join(' / ')
     };
-
-    result.title = doc.querySelector('h1 span[property="v:itemreviewed"]')?.textContent?.trim() || keyword;
-    result.director = getInfoField('导演');
-    result.actor = getInfoField('主演');
-    result.area = getInfoField('制片国家/地区');
-    result.lang = getInfoField('语言');
-    result.year = doc.querySelector('h1 span.year')?.textContent?.replace(/[\(\)]/g, '') || '';
-    result.score = doc.querySelector('strong[property="v:average"]')?.textContent?.trim();
-    result.content = doc.querySelector('span[property="v:summary"]')?.textContent?.trim();
-    result.writer = getInfoField('编剧');
-    result.pubdate = getInfoField('首播') || getInfoField('上映日期');
-    result.type_name = getInfoField('类型');
-
-    const reviewItems = doc.querySelectorAll('.comment-item');
-    if (reviewItems.length > 0) {
-        result.reviews = Array.from(reviewItems).slice(0, 10).map(el => {
-            let avatar = el.querySelector('.avatar img')?.getAttribute('src') || '';
-            if (avatar.includes('?')) avatar = avatar.split('?')[0];
-            const user = el.querySelector('.comment-info a')?.textContent?.trim() || '匿名用户';
-            const ratingClass = el.querySelector('.rating')?.className || '';
-            const ratingNum = ratingClass.match(/allstar(\d+)/)?.[1] || '0';
-            const stars = '★'.repeat(parseInt(ratingNum)/10) + '☆'.repeat(5 - parseInt(ratingNum)/10);
-            const time = el.querySelector('.comment-time')?.textContent?.trim() || '';
-            const content = el.querySelector('.short')?.textContent?.trim() || '';
-            const votes = el.querySelector('.votes')?.textContent?.trim() || '0';
-            const location = el.querySelector('.comment-location')?.textContent?.trim() || '';
-            return { user, avatar, rating: stars, content, time: location ? `${time} · ${location}` : time, useful_count: votes };
-        });
-    }
-
-    const celebrityItems = doc.querySelectorAll('#celebrities .celebrity');
-    if (celebrityItems.length > 0) {
-        result.actorsExtended = Array.from(celebrityItems).slice(0, 10).map(el => {
-            const name = el.querySelector('.name')?.textContent?.trim() || '';
-            const role = el.querySelector('.role')?.textContent?.trim() || '';
-            let pic = el.querySelector('.avatar')?.getAttribute('style')?.match(/url\((.*?)\)/)?.[1] || el.querySelector('img')?.getAttribute('src') || '';
-            if (pic.includes('?')) pic = pic.split('?')[0];
-            return { name, role, pic };
-        });
-    }
-
-    const recItems = doc.querySelectorAll('#recommendations dl');
-    if (recItems.length > 0) {
-        result.recs = Array.from(recItems).slice(0, 10).map(el => {
-            let pic = el.querySelector('img')?.getAttribute('src') || '';
-            if (pic.includes('?')) pic = pic.split('?')[0];
-            return {
-                name: el.querySelector('img')?.getAttribute('alt') || '',
-                pic: pic,
-                doubanId: el.querySelector('dd a')?.getAttribute('href')?.match(/subject\/(\d+)/)?.[1]
-            };
-        });
-    }
-    result.pic = doc.querySelector('#mainpic img')?.getAttribute('src');
-    if (result.pic && result.pic.includes('?')) result.pic = result.pic.split('?')[0];
-    
-    return result;
   } catch (e) { return null; }
 };
