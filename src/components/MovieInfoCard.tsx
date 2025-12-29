@@ -1,14 +1,14 @@
 
 import React, { useState } from 'react';
-import { VodDetail } from '../types';
+import { VodDetail, VodItem } from '../types';
 import ImageWithFallback from './ImageWithFallback';
 
 interface MovieInfoCardProps {
   movie: VodDetail;
-  onSearch?: (keyword: string) => void;
+  onItemClick?: (item: VodItem) => void;
 }
 
-const MovieInfoCard: React.FC<MovieInfoCardProps> = ({ movie, onSearch }) => {
+const MovieInfoCard: React.FC<MovieInfoCardProps> = ({ movie, onItemClick }) => {
   const [expanded, setExpanded] = useState(false);
   const score = movie.vod_score || movie.vod_douban_score || 'N/A';
   const rawContent = movie.vod_content ? movie.vod_content.replace(/<[^>]+>/g, '') : '暂无简介';
@@ -93,10 +93,9 @@ const MovieInfoCard: React.FC<MovieInfoCardProps> = ({ movie, onSearch }) => {
                           猜你喜欢 / Recommended
                       </h3>
                       <div className="-mx-6 md:mx-0 px-6 md:px-0">
-                          {/* 最大化尺寸：移动端 160px / 桌面端 220px */}
                           <div className="flex gap-8 md:gap-12 overflow-x-auto pb-10 custom-scrollbar w-full">
                               {movie.vod_recs.map((rec, idx) => (
-                                  <div key={idx} className="flex-shrink-0 w-[160px] md:w-[220px] cursor-pointer group" onClick={() => onSearch && onSearch(rec.name)}>
+                                  <div key={idx} className="flex-shrink-0 w-[160px] md:w-[220px] cursor-pointer group" onClick={() => onItemClick && onItemClick({ vod_id: rec.doubanId || 0, vod_name: rec.name, vod_pic: rec.pic })}>
                                       <div className="aspect-[2/3] w-full rounded-2xl md:rounded-[2.5rem] overflow-hidden border border-white/10 mb-5 relative shadow-2xl transition-all duration-1000 group-hover:scale-105 group-hover:-translate-y-3 ring-1 ring-white/10 bg-gray-900">
                                           <ImageWithFallback src={rec.pic} alt={rec.name} searchKeyword={rec.name} size="m" className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110" />
                                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-500 flex items-center justify-center">

@@ -236,7 +236,7 @@ const App: React.FC = () => {
       if (path === 'play') {
           const id = pathParts[2];
           const state = location.state as any;
-          if (id && (!currentMovie || String(currentMovie.vod_id) !== id)) {
+          if (id) {
               handleSelectMovie(id, state?.apiUrl, state?.vodName);
           }
       } else {
@@ -247,7 +247,11 @@ const App: React.FC = () => {
   }, [location.pathname]);
 
   const handleSelectMovie = async (id: number | string, apiUrl?: string, vodName?: string) => {
+      // 检查是否已经是当前播放的影片，避免重复加载
+      if (currentMovie && String(currentMovie.vod_id) === String(id) && !apiUrl) return;
+
       setLoading(true);
+      window.scrollTo({ top: 0, behavior: 'smooth' }); // 跳转后回滚顶部
       try {
           const result = await getAggregatedMovieDetail(id, apiUrl, vodName);
           if (result && result.main) {
@@ -275,8 +279,14 @@ const App: React.FC = () => {
         });
         return;
       }
-      // 关键修复：通过 navigate 触发路由变化，由 useEffect 统一处理数据加载
-      navigate(`/play/${item.vod_id}`, { state: { apiUrl: item.api_url, vodName: item.vod_name } });
+      // 强制更新路由并传递必要状态
+      navigate(`/play/${item.vod_id}`, { 
+          state: { 
+              apiUrl: (item as any).api_url, 
+              vodName: item.vod_name 
+          },
+          replace: location.pathname.startsWith('/play/') // 如果已经在播放页，则替换当前历史记录
+      });
   };
 
   const handleRemoveHistory = (e: React.MouseEvent, item: VodItem) => {
@@ -416,7 +426,7 @@ const App: React.FC = () => {
                               </div>
                           )}
                       </div>
-                      <MovieInfoCard movie={currentMovie} onSearch={triggerSearch} />
+                      <MovieInfoCard movie={currentMovie} onItemClick={handleItemClick} />
                       <Suspense fallback={null}><GeminiChat currentMovie={currentMovie} /></Suspense>
                   </section>
               )}
