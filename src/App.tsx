@@ -230,13 +230,16 @@ const App: React.FC = () => {
        });
   }, []);
 
+  // 深度监听路由，强制触发更新
   useEffect(() => {
       const pathParts = location.pathname.split('/');
       const path = pathParts[1] || '';
+      
       if (path === 'play') {
           const id = pathParts[2];
           const state = location.state as any;
           if (id) {
+              // 即使 ID 相同，如果是显式跳转也应当重新加载
               handleSelectMovie(id, state?.apiUrl, state?.vodName);
           }
       } else {
@@ -244,14 +247,11 @@ const App: React.FC = () => {
           if (path !== 'play') setCurrentMovie(null); 
           setHasSearched(activeTab === 'search');
       }
-  }, [location.pathname]);
+  }, [location.pathname, location.key]); // 增加 location.key 监听
 
   const handleSelectMovie = async (id: number | string, apiUrl?: string, vodName?: string) => {
-      // 检查是否已经是当前播放的影片，避免重复加载
-      if (currentMovie && String(currentMovie.vod_id) === String(id) && !apiUrl) return;
-
       setLoading(true);
-      window.scrollTo({ top: 0, behavior: 'smooth' }); // 跳转后回滚顶部
+      window.scrollTo({ top: 0, behavior: 'smooth' }); 
       try {
           const result = await getAggregatedMovieDetail(id, apiUrl, vodName);
           if (result && result.main) {
@@ -263,11 +263,25 @@ const App: React.FC = () => {
                   setCurrentSourceIndex(initialIndex);
                   setEpisodes(allSources[initialIndex].episodes);
                   setCurrentMovie(main);
+                  
+                  // 添加观看历史
+                  const historyItem: HistoryItem = {
+                      ...main,
+                      episode_index: 0,
+                      episode_name: allSources[initialIndex].episodes[0].title,
+                      last_updated: Date.now()
+                  };
+                  setWatchHistory(addToHistory(historyItem));
+
                   const savedIndex = parseInt(localStorage.getItem(`cine_last_episode_${main.vod_id}`) || '0');
                   setCurrentEpisodeIndex((!isNaN(savedIndex) && savedIndex >= 0 && savedIndex < allSources[initialIndex].episodes.length) ? savedIndex : 0);
               }
           }
-      } catch (error) {} finally { setLoading(false); }
+      } catch (error) {
+          console.error("加载影片详情失败:", error);
+      } finally { 
+          setLoading(false); 
+      }
   };
 
   const handleItemClick = (item: VodItem) => {
@@ -279,13 +293,13 @@ const App: React.FC = () => {
         });
         return;
       }
-      // 强制更新路由并传递必要状态
+      
+      // 统一跳转逻辑
       navigate(`/play/${item.vod_id}`, { 
           state: { 
               apiUrl: (item as any).api_url, 
               vodName: item.vod_name 
-          },
-          replace: location.pathname.startsWith('/play/') // 如果已经在播放页，则替换当前历史记录
+          }
       });
   };
 
@@ -321,7 +335,6 @@ const App: React.FC = () => {
     ];
     return (
         <>
-            {/* Desktop Header */}
             <nav className="fixed top-0 left-0 right-0 z-50 bg-black/90 backdrop-blur-xl border-b border-white/5 hidden lg:block">
                 <div className="container mx-auto max-w-[1400px]">
                     <div className="flex items-center justify-between h-16 px-4">
@@ -334,13 +347,11 @@ const App: React.FC = () => {
                 </div>
             </nav>
 
-            {/* Mobile Header (Title only) */}
             <header className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md h-14 flex items-center justify-between px-5 border-b border-white/5">
                 <span className="text-xl font-black bg-clip-text text-transparent bg-gradient-to-r from-brand to-cyan-400">CineStream</span>
                 <button onClick={onSettingsClick} className="text-gray-400 hover:text-white p-1.5">{NavIcons.Settings}</button>
             </header>
 
-            {/* Mobile Bottom TabBar */}
             <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#0f111a]/95 backdrop-blur-2xl border-t border-white/5 safe-area-bottom">
                 <div className="grid grid-cols-6 h-16">
                     {navItems.map(item => (
@@ -365,7 +376,6 @@ const App: React.FC = () => {
           <NavBar activeTab={activeTab} onTabChange={(tab: string) => navigate(TAB_TO_URL[tab])} onSettingsClick={() => setShowSettings(true)} />
           <Suspense fallback={null}><SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} /></Suspense>
           
-          {/* Context Menu Component */}
           {contextMenu.visible && contextMenu.item && (
               <div 
                   className="fixed z-[9999] bg-gray-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-fade-in py-1.5 min-w-[160px]"
@@ -393,6 +403,8 @@ const App: React.FC = () => {
           )}
 
           <div className="relative z-10 container mx-auto px-4 lg:px-6 py-4 lg:py-6 max-w-[1400px]">
+              {loading && <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center animate-fade-in"><div className="w-12 h-12 border-4 border-brand border-t-transparent rounded-full animate-spin"></div></div>}
+              
               {currentMovie && (
                   <section className="mb-12 animate-fade-in space-y-4 lg:space-y-6 mt-0 lg:mt-4">
                       <h1 className="sr-only">{currentMovie.vod_name} {episodes[currentEpisodeIndex]?.title} 高清在线观看</h1>

@@ -16,7 +16,7 @@ interface VideoPlayerProps {
   doubanId?: string;
   vodId?: string | number;
   className?: string;
-  sourceType?: string; // 保留 prop 但广告过滤逻辑改为用户提供的新逻辑
+  sourceType?: string;
 }
 
 const ICONS = {
@@ -38,9 +38,6 @@ const SKIP_OPTIONS = [
 const DANMAKU_API = 'https://daili.laibo123.dpdns.org/5573108/api/v2/comment'; 
 const CACHE_TTL = 15 * 60 * 1000; 
 
-/**
- * 替换为用户提供的最新去广告逻辑
- */
 function filterAdsFromM3U8(m3u8Content: string): string {
     if (!m3u8Content) return '';
     const lines = m3u8Content.split('\n');
@@ -49,26 +46,17 @@ function filterAdsFromM3U8(m3u8Content: string): string {
     
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
-        
-        // 检测广告开始标记 (支持 CUE-OUT, SCTE35, DATERANGE)
-        if (line.includes('EXT-X-CUE-OUT') || 
-            line.includes('SCTE35') || 
-            (line.includes('DATERANGE') && line.includes('SCTE35'))) { 
+        if (line.includes('EXT-X-CUE-OUT') || line.includes('SCTE35') || (line.includes('DATERANGE') && line.includes('SCTE35'))) { 
             inAdBlock = true; 
             continue; 
         }
-        
-        // 检测广告结束标记
         if (line.includes('EXT-X-CUE-IN')) { 
             inAdBlock = false; 
             continue; 
         }
-        
-        // 跳过广告区块内容或中断标记
         if (inAdBlock || line.includes('EXT-X-DISCONTINUITY')) {
             continue;
         }
-        
         filteredLines.push(lines[i]);
     }
     return filteredLines.join('\n');
@@ -189,7 +177,6 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                                       const originalOnSuccess = callbacks.onSuccess;
                                       callbacks.onSuccess = (response: any, stats: any, ctx: any) => {
                                           if (response.data && typeof response.data === 'string') {
-                                              // 调用最新提供的去广告逻辑
                                               response.data = filterAdsFromM3U8(response.data);
                                           }
                                           originalOnSuccess(response, stats, ctx);
@@ -240,27 +227,46 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
   return (
       <div className={`w-full aspect-video lg:aspect-auto lg:h-full bg-black group relative z-0 ${className || ''}`}>
           <style>{`
-            .art-bottom { padding: 0 20px 20px !important; background: transparent !important; }
+            .art-bottom { padding: 0 10px 10px !important; background: transparent !important; }
             .art-controls {
                 background: rgba(15, 23, 42, 0.4) !important;
-                backdrop-filter: blur(32px) saturate(180%) !important;
-                -webkit-backdrop-filter: blur(32px) saturate(180%) !important;
-                border: 1px solid rgba(255, 255, 255, 0.15) !important;
-                border-radius: 24px !important;
-                box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5) !important;
-                height: 60px !important;
-                padding: 0 16px !important;
+                backdrop-filter: blur(24px) saturate(180%) !important;
+                -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                border-radius: 16px !important;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+                height: 50px !important;
+                padding: 0 12px !important;
                 position: relative;
                 z-index: 10;
             }
-            /* 进度条对齐控制栏顶部 */
-            .art-progress { bottom: 60px !important; height: 4px !important; z-index: 20; }
-            .art-progress-indicator { background: #22c55e !important; border: 3px solid #fff !important; width: 14px !important; height: 14px !important; box-shadow: 0 0 12px rgba(34, 197, 94, 0.8) !important; }
-            .art-notice { background: rgba(34, 197, 94, 0.9) !important; border-radius: 100px !important; padding: 12px 28px !important; font-weight: 900 !important; font-size: 14px !important; letter-spacing: 0.1em !important; box-shadow: 0 10px 20px rgba(0,0,0,0.3) !important; }
+            .art-progress { 
+                bottom: 50px !important; 
+                height: 4px !important; 
+                z-index: 20; 
+                left: 10px !important; 
+                right: 10px !important; 
+                width: calc(100% - 20px) !important; 
+            }
+            .art-progress-indicator { 
+                background: #22c55e !important; 
+                border: 2px solid #fff !important; 
+                width: 12px !important; 
+                height: 12px !important; 
+                box-shadow: 0 0 10px rgba(34, 197, 94, 0.6) !important; 
+            }
+            .art-notice { 
+                background: rgba(34, 197, 94, 0.95) !important; 
+                border-radius: 50px !important; 
+                padding: 10px 24px !important; 
+                font-weight: bold !important; 
+                font-size: 13px !important; 
+                box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important; 
+            }
             @media (max-width: 768px) {
-                .art-bottom { padding: 0 10px 10px !important; }
-                .art-controls { height: 52px !important; border-radius: 16px !important; }
-                .art-progress { bottom: 52px !important; }
+                .art-bottom { padding: 0 8px 8px !important; }
+                .art-controls { height: 48px !important; border-radius: 12px !important; }
+                .art-progress { bottom: 48px !important; left: 8px !important; right: 8px !important; width: calc(100% - 16px) !important; }
             }
           `}</style>
           <div ref={containerRef} className="w-full h-full" />
