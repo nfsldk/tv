@@ -278,13 +278,13 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
                 border: 1px solid rgba(255, 255, 255, 0.1) !important;
                 border-radius: 16px !important;
                 box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
-                height: 48px !important;
+                height: 50px !important;
                 padding: 0 12px !important;
                 position: relative;
                 z-index: 10;
             }
             .art-progress { 
-                bottom: 46px !important; 
+                bottom: 48px !important; 
                 height: 4px !important; 
                 z-index: 20; 
                 left: 10px !important; 
@@ -309,8 +309,8 @@ const VideoPlayer = forwardRef((props: VideoPlayerProps, ref) => {
             }
             @media (max-width: 768px) {
                 .art-bottom { padding: 0 8px 8px !important; }
-                .art-controls { height: 44px !important; border-radius: 12px !important; }
-                .art-progress { bottom: 42px !important; left: 8px !important; right: 8px !important; width: calc(100% - 16px) !important; }
+                .art-controls { height: 46px !important; border-radius: 12px !important; }
+                .art-progress { bottom: 44px !important; left: 8px !important; right: 8px !important; width: calc(100% - 16px) !important; }
             }
           `}</style>
           <div ref={containerRef} className="w-full h-full" />

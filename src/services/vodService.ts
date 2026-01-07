@@ -20,20 +20,19 @@ const DEFAULT_SOURCE: VodSource = {
 };
 
 const PROXIES = [
-    'https://daili.laidd.de5.net/?url=',
     'https://api.allorigins.win/raw?url=',
-    'https://corsproxy.io/?'
+    'https://corsproxy.io/?',
+    'https://daili.laidd.de5.net/?url='
 ];
 
 const HISTORY_KEY = 'cine_watch_history';
 const SOURCES_KEY = 'cine_vod_sources';
-const HOME_CACHE_KEY = 'cine_home_data_v6';
-const CAT_CACHE_PREFIX = 'cine_cat_cache_v2_';
-const CACHE_TTL = 15 * 60 * 1000; 
+const HOME_CACHE_KEY = 'cine_home_data_v10'; // 升级缓存版本
+const CACHE_TTL = 30 * 60 * 1000; 
 
 // --- UTILS ---
 
-const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = 7000) => {
+const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = 8000) => {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
     try {
@@ -64,7 +63,7 @@ const fetchCmsData = async (baseUrl: string, params: URLSearchParams): Promise<a
     params.set('out', 'json');
     const url = `${baseUrl}?${params.toString()}`;
     try {
-        const res = await fetchWithTimeout(url, {}, 5000);
+        const res = await fetchWithTimeout(url, {}, 6000);
         if (res.ok) {
             const data = await res.json();
             if (data?.list) return data;
@@ -75,6 +74,9 @@ const fetchCmsData = async (baseUrl: string, params: URLSearchParams): Promise<a
 
 // --- CORE LOGIC ---
 
+/**
+ * 首页部分：豆瓣 + CMS 强力兜底
+ */
 export const getHomeSections = async () => {
     try {
         const cached = localStorage.getItem(HOME_CACHE_KEY);
@@ -84,22 +86,44 @@ export const getHomeSections = async () => {
         }
     } catch (e) {}
 
-    const [movies, series, anime, variety] = await Promise.all([
-        fetchDoubanJson('movie', '热门', 18),
-        fetchDoubanJson('tv', '热门', 18),
-        fetchDoubanJson('tv', '日本动画', 18),
-        fetchDoubanJson('tv', '综艺', 18)
+    // 1. 尝试抓取豆瓣数据
+    const [dbMovies, dbSeries, dbAnime, dbVariety] = await Promise.all([
+        fetchDoubanJson('movie', '热门', 12),
+        fetchDoubanJson('tv', '热门', 12),
+        fetchDoubanJson('tv', '日本动画', 12),
+        fetchDoubanJson('tv', '综艺', 12)
     ]);
 
+    // 2. 如果豆瓣数据严重不足（如被封禁），则从默认 CMS 抓取最新更新作为补充
+    let cmsLatest: VodItem[] = [];
+    if (dbMovies.length === 0) {
+        try {
+            const cmsData = await fetchCmsData(DEFAULT_SOURCE.api, new URLSearchParams({ ac: 'detail' }));
+            if (cmsData?.list) {
+                cmsLatest = cmsData.list.map((item: any) => ({
+                    vod_id: `cms_${item.vod_id}`,
+                    vod_name: item.vod_name,
+                    vod_pic: item.vod_pic,
+                    vod_score: item.vod_score || 'NEW',
+                    vod_year: item.vod_year,
+                    source: 'cms' as const,
+                    api_url: DEFAULT_SOURCE.api,
+                    type_name: item.type_name
+                }));
+            }
+        } catch (e) {}
+    }
+
     const data = {
-        movies,
-        series,
-        anime,
-        variety,
-        all: [...movies, ...series].sort(() => Math.random() - 0.5).slice(0, 15)
+        movies: dbMovies.length > 0 ? dbMovies : cmsLatest.filter(i => i.type_name?.includes('电影')).slice(0, 12),
+        series: dbSeries.length > 0 ? dbSeries : cmsLatest.filter(i => i.type_name?.includes('剧')).slice(0, 12),
+        anime: dbAnime.length > 0 ? dbAnime : cmsLatest.filter(i => i.type_name?.includes('动漫') || i.type_name?.includes('动画')).slice(0, 12),
+        variety: dbVariety.length > 0 ? dbVariety : cmsLatest.filter(i => i.type_name?.includes('综艺')).slice(0, 12),
+        all: cmsLatest.length > 0 ? cmsLatest.slice(0, 15) : [...dbMovies, ...dbSeries].sort(() => Math.random() - 0.5).slice(0, 15)
     };
 
-    if (data.movies.length > 0) {
+    // 只要有任何数据，就进行缓存
+    if (data.movies.length > 0 || data.all.length > 0) {
         localStorage.setItem(HOME_CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() }));
     }
     return data;
@@ -114,33 +138,12 @@ const fetchDoubanJson = async (type: string, tag: string, limit = 18, sort = 're
             vod_name: item.title,
             vod_pic: item.cover || '', 
             vod_score: item.rate || 'HOT',
-            vod_year: '2024',
+            vod_year: '2025',
             source: 'douban' as const,
             type_name: tag
         }));
     }
     return [];
-};
-
-export const fetchCategoryItems = async (category: string, options: any = {}): Promise<VodItem[]> => {
-    const { filter1 = '全部', page = 1 } = options;
-    const limit = 20;
-    const start = (page - 1) * limit;
-    
-    let dbType = 'movie';
-    let dbTag = filter1;
-
-    if (category === 'series' || category === 'anime' || category === 'variety') {
-        dbType = 'tv';
-    }
-
-    if (filter1 === '全部') {
-        if (category === 'anime') dbTag = '日本动画';
-        else if (category === 'variety') dbTag = '综艺';
-        else dbTag = '热门';
-    }
-
-    return await fetchDoubanJson(dbType, dbTag, limit, 'recommend', start);
 };
 
 export const searchAllCmsResources = async (keyword: string): Promise<VodItem[]> => {
@@ -190,7 +193,6 @@ export const getAggregatedMovieDetail = async (id: number | string, apiUrl?: str
     const isCmsId = String(id).startsWith('cms_');
     const realId = String(id).replace('cms_', '');
     
-    // 优先使用提供的 API 直接查询
     if (apiUrl) {
         const data = await fetchCmsData(apiUrl, new URLSearchParams({ ac: 'detail', ids: realId }));
         if (data?.list?.[0]) {
@@ -199,7 +201,6 @@ export const getAggregatedMovieDetail = async (id: number | string, apiUrl?: str
         }
     }
 
-    // 如果是豆瓣 ID，尝试获取名称并搜索 CMS
     let nameToSearch = vodName;
     if (!isCmsId && !nameToSearch) {
         const dbData = await fetchDoubanData('', id);
@@ -218,7 +219,6 @@ export const getAggregatedMovieDetail = async (id: number | string, apiUrl?: str
         }
     }
 
-    // 最后的兜底：遍历所有启用的 CMS 源按 ID 匹配
     const sources = getVodSources().filter(s => s.active);
     for (const source of sources) {
         try {

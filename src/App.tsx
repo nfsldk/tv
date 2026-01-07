@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getHomeSections, getAggregatedSearch, getAggregatedMovieDetail, parseAllSources, fetchDoubanData, fetchCategoryItems, getHistory, addToHistory, removeFromHistory, fetchPersonDetail, initVodSources } from './services/vodService';
+// Removed fetchCategoryItems as it is not exported by ./services/vodService and not used in this component
+import { getHomeSections, getAggregatedSearch, getAggregatedMovieDetail, parseAllSources, fetchDoubanData, getHistory, addToHistory, removeFromHistory, fetchPersonDetail, initVodSources } from './services/vodService';
 import MovieInfoCard from './components/MovieInfoCard';
 import ImageWithFallback from './components/ImageWithFallback';
 import { VodItem, VodDetail, Episode, PlaySource, HistoryItem, PersonDetail } from './types';
@@ -159,11 +160,8 @@ const App: React.FC = () => {
   const [homeSections, setHomeSections] = useState<any>({ movies: [], series: [], shortDrama: [], anime: [], variety: [] });
   const [heroItems, setHeroItems] = useState<VodItem[]>([]);
   const [watchHistory, setWatchHistory] = useState<HistoryItem[]>([]);
+  
   const [contextMenu, setContextMenu] = useState<{ visible: boolean, x: number, y: number, item: VodItem | null }>({ visible: false, x: 0, y: 0, item: null });
-
-  // 选集分页状态
-  const [episodePage, setEpisodePage] = useState(0);
-  const EPISODE_PAGE_SIZE = 40;
 
   useEffect(() => {
     const SITE_NAME = 'CineStream AI';
@@ -245,13 +243,6 @@ const App: React.FC = () => {
       }
   }, [location.pathname]);
 
-  // 当当前集数变化时，自动定位所属页码
-  useEffect(() => {
-    if (currentEpisodeIndex !== -1) {
-      setEpisodePage(Math.floor(currentEpisodeIndex / EPISODE_PAGE_SIZE));
-    }
-  }, [currentEpisodeIndex]);
-
   const handleSelectMovie = async (id: number | string, apiUrl?: string, vodName?: string) => {
       setLoading(true);
       try {
@@ -266,9 +257,7 @@ const App: React.FC = () => {
                   setEpisodes(allSources[initialIndex].episodes);
                   setCurrentMovie(main);
                   const savedIndex = parseInt(localStorage.getItem(`cine_last_episode_${main.vod_id}`) || '0');
-                  const idx = (!isNaN(savedIndex) && savedIndex >= 0 && savedIndex < allSources[initialIndex].episodes.length) ? savedIndex : 0;
-                  setCurrentEpisodeIndex(idx);
-                  setEpisodePage(Math.floor(idx / EPISODE_PAGE_SIZE));
+                  setCurrentEpisodeIndex((!isNaN(savedIndex) && savedIndex >= 0 && savedIndex < allSources[initialIndex].episodes.length) ? savedIndex : 0);
               }
           }
       } catch (error) {} finally { setLoading(false); }
@@ -358,10 +347,6 @@ const App: React.FC = () => {
     );
   };
 
-  // 选集分页列表展示
-  const episodePagesCount = Math.ceil(episodes.length / EPISODE_PAGE_SIZE);
-  const currentEpisodes = episodes.slice(episodePage * EPISODE_PAGE_SIZE, (episodePage + 1) * EPISODE_PAGE_SIZE);
-
   return (
       <div className="relative min-h-screen pb-24 lg:pb-16 overflow-x-hidden font-sans pt-14 lg:pt-16">
           <NavBar activeTab={activeTab} onTabChange={(tab: string) => navigate(TAB_TO_URL[tab])} onSettingsClick={() => setShowSettings(true)} />
@@ -412,7 +397,7 @@ const App: React.FC = () => {
                           </div>
 
                           {showSidePanel && (
-                              <div className="w-full lg:w-[360px] flex flex-col border-l border-white/10 bg-[#121620] relative z-0 h-[450px] lg:h-auto">
+                              <div className="w-full lg:w-[360px] flex flex-col border-l border-white/10 bg-[#121620] relative z-0 h-[400px] lg:h-auto">
                                   <div className="flex items-center justify-between p-3 lg:p-4 border-b border-white/5 bg-black/20">
                                       <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-brand shadow-[0_0_8px_#22c55e]"></div><h3 className="text-xs lg:text-sm font-bold text-gray-200">正在播放</h3></div>
                                       <button onClick={() => setShowSidePanel(false)} className="p-1.5 rounded-lg text-gray-500 hover:text-white transition-all"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
@@ -421,43 +406,8 @@ const App: React.FC = () => {
                                       <button onClick={() => setSidePanelTab('episodes')} className={`flex-1 py-3 lg:py-3.5 text-[10px] lg:text-xs font-black tracking-widest uppercase transition-all relative ${sidePanelTab === 'episodes' ? 'text-brand' : 'text-gray-500'}`}>选集{sidePanelTab === 'episodes' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand shadow-[0_0_10px_#22c55e]"></div>}</button>
                                       <button onClick={() => setSidePanelTab('sources')} className={`flex-1 py-3 lg:py-3.5 text-[10px] lg:text-xs font-black tracking-widest uppercase transition-all relative ${sidePanelTab === 'sources' ? 'text-brand' : 'text-gray-500'}`}>播放源{sidePanelTab === 'sources' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand shadow-[0_0_10px_#22c55e]"></div>}</button>
                                   </div>
-
-                                  {/* 分页切换器 (仅在选集标签下且总集数 > 40 时显示) */}
-                                  {sidePanelTab === 'episodes' && episodePagesCount > 1 && (
-                                    <div className="flex gap-2 p-2 overflow-x-auto no-scrollbar border-b border-white/5 bg-black/20">
-                                        {Array.from({ length: episodePagesCount }).map((_, i) => (
-                                          <button
-                                            key={i}
-                                            onClick={() => setEpisodePage(i)}
-                                            className={`flex-shrink-0 px-3 py-1 text-[10px] font-bold rounded-full transition-all ${episodePage === i ? 'bg-brand text-black' : 'bg-white/5 text-gray-400 hover:text-white'}`}
-                                          >
-                                            {i * EPISODE_PAGE_SIZE + 1}-{Math.min((i + 1) * EPISODE_PAGE_SIZE, episodes.length)}
-                                          </button>
-                                        ))}
-                                    </div>
-                                  )}
-
                                   <div className="flex-1 overflow-y-auto custom-scrollbar p-3 lg:p-4 bg-black/5">
-                                      {sidePanelTab === 'episodes' ? ( 
-                                        <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-4 gap-2">
-                                          {currentEpisodes.map((ep) => ( 
-                                            <button 
-                                              key={ep.index} 
-                                              onClick={() => setCurrentEpisodeIndex(ep.index)} 
-                                              className={`h-9 lg:h-10 rounded-md border text-[10px] lg:text-[11px] font-bold transition-all truncate px-1 flex items-center justify-center ${currentEpisodeIndex === ep.index ? 'bg-brand text-black border-brand shadow-[0_4px_12px_rgba(34,197,94,0.3)]' : 'bg-[#1a1f2e] text-gray-400 border-white/5 active:border-brand/40 hover:text-brand'}`} 
-                                              title={ep.title}
-                                            >
-                                              {ep.title.replace('第', '').replace('集', '')}
-                                            </button> 
-                                          ))}
-                                        </div> 
-                                      ) : ( 
-                                        <div className="space-y-2.5">
-                                          {availableSources.map((source, idx) => ( 
-                                            <button key={idx} onClick={() => { setCurrentSourceIndex(idx); setEpisodes(source.episodes); setSidePanelTab('episodes'); }} className={`w-full text-left p-3 lg:p-4 rounded-xl border transition-all flex justify-between items-center group ${currentSourceIndex === idx ? 'bg-brand/10 border-brand/50 text-brand' : 'bg-[#1a1f2e] border-white/5 text-gray-400 active:bg-white/5'}`}><div className="min-w-0"><div className={`font-black text-[10px] lg:text-xs mb-1 truncate ${currentSourceIndex === idx ? 'text-brand' : 'text-gray-200'}`}>{source.name}</div><div className="text-[9px] lg:text-[10px] text-gray-500 font-mono opacity-60">{source.episodes.length} 集资源</div></div>{currentSourceIndex === idx ? ( <div className="flex items-center gap-1"><span className="text-[9px] lg:text-[10px] font-bold uppercase">Active</span><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-3 h-3 lg:w-4 lg:h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg></div> ) : ( <div className="w-2 h-2 rounded-full bg-white/10"></div> )}</button> 
-                                          ))}
-                                        </div> 
-                                      )}
+                                      {sidePanelTab === 'episodes' ? ( <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-4 gap-2">{episodes.map((ep) => ( <button key={ep.index} onClick={() => setCurrentEpisodeIndex(ep.index)} className={`h-9 lg:h-10 rounded-md border text-[10px] lg:text-[11px] font-bold transition-all truncate px-1 flex items-center justify-center ${currentEpisodeIndex === ep.index ? 'bg-brand text-black border-brand shadow-[0_4px_12px_rgba(34,197,94,0.3)]' : 'bg-[#1a1f2e] text-gray-400 border-white/5 active:border-brand/40 hover:text-brand'}`} title={ep.title}>{ep.title.replace('第', '').replace('集', '')}</button> ))}</div> ) : ( <div className="space-y-2.5">{availableSources.map((source, idx) => ( <button key={idx} onClick={() => { setCurrentSourceIndex(idx); setEpisodes(source.episodes); setSidePanelTab('episodes'); }} className={`w-full text-left p-3 lg:p-4 rounded-xl border transition-all flex justify-between items-center group ${currentSourceIndex === idx ? 'bg-brand/10 border-brand/50 text-brand' : 'bg-[#1a1f2e] border-white/5 text-gray-400 active:bg-white/5'}`}><div className="min-w-0"><div className={`font-black text-[10px] lg:text-xs mb-1 truncate ${currentSourceIndex === idx ? 'text-brand' : 'text-gray-200'}`}>{source.name}</div><div className="text-[9px] lg:text-[10px] text-gray-500 font-mono opacity-60">{source.episodes.length} 集资源</div></div>{currentSourceIndex === idx ? ( <div className="flex items-center gap-1"><span className="text-[9px] lg:text-[10px] font-bold uppercase">Active</span><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-3 h-3 lg:w-4 lg:h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg></div> ) : ( <div className="w-2 h-2 rounded-full bg-white/10"></div> )}</button> ))}</div> )}
                                   </div>
                                   <div className="p-2 lg:p-3 text-center border-t border-white/5 bg-black/20"><p className="text-[9px] lg:text-[10px] text-gray-600 font-medium">智能 P2P 加速已开启</p></div>
                               </div>

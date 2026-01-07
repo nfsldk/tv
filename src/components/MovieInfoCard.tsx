@@ -6,9 +6,10 @@ import ImageWithFallback from './ImageWithFallback';
 interface MovieInfoCardProps {
   movie: VodDetail;
   onItemClick?: (item: VodItem) => void;
+  onSearch?: (keyword: string) => void;
 }
 
-const MovieInfoCard: React.FC<MovieInfoCardProps> = ({ movie, onItemClick }) => {
+const MovieInfoCard: React.FC<MovieInfoCardProps> = ({ movie, onItemClick, onSearch }) => {
   const [expanded, setExpanded] = useState(false);
   const score = movie.vod_score || movie.vod_douban_score || 'N/A';
   const rawContent = movie.vod_content ? movie.vod_content.replace(/<[^>]+>/g, '') : '暂无简介';
@@ -28,7 +29,7 @@ const MovieInfoCard: React.FC<MovieInfoCardProps> = ({ movie, onItemClick }) => 
   return (
       <article className="relative w-full rounded-[2rem] md:rounded-[3rem] overflow-hidden bg-[#0a0a0a] border border-white/5 shadow-3xl mt-8 md:mt-12 font-sans mb-16 ring-1 ring-white/10">
           <div className="absolute inset-0 z-0 overflow-hidden">
-              <ImageWithFallback src={movie.vod_pic || ''} searchKeyword={movie.vod_name} className="w-full h-full object-cover opacity-15 blur-[100px] scale-150 transition-all duration-1000" />
+              <ImageWithFallback src={movie.vod_pic || ''} searchKeyword={movie.vod_name} size="l" className="w-full h-full object-cover opacity-15 blur-[100px] scale-150 transition-all duration-1000" />
               <div className="absolute inset-0 bg-gradient-to-b from-[#0a0a0a]/40 via-[#0a0a0a] to-[#0a0a0a]"></div>
           </div>
 
@@ -36,7 +37,7 @@ const MovieInfoCard: React.FC<MovieInfoCardProps> = ({ movie, onItemClick }) => 
               <header className="flex flex-col md:flex-row gap-10 md:gap-20 items-start">
                   <div className="flex-shrink-0 mx-auto md:mx-0 group">
                       <div className="w-[160px] h-[240px] md:w-[260px] md:h-[390px] rounded-2xl md:rounded-[2.5rem] overflow-hidden shadow-[0_25px_60px_rgba(0,0,0,0.8)] border border-white/20 relative transition-all duration-700 group-hover:scale-105 group-hover:-rotate-1">
-                          <ImageWithFallback src={movie.vod_pic || ''} searchKeyword={movie.vod_name} priority={true} className="w-full h-full object-cover" />
+                          <ImageWithFallback src={movie.vod_pic || ''} searchKeyword={movie.vod_name} priority={true} size="l" className="w-full h-full object-cover" />
                           <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex items-end justify-center pb-10">
                              <div className="text-brand font-black text-3xl drop-shadow-2xl">★ {score}</div>
                           </div>
@@ -123,7 +124,7 @@ const MovieInfoCard: React.FC<MovieInfoCardProps> = ({ movie, onItemClick }) => 
                               <article key={idx} className="bg-white/[0.03] border border-white/5 rounded-[2rem] p-8 md:p-12 transition-all hover:bg-white/[0.06] hover:border-white/20 animate-fade-in shadow-2xl backdrop-blur-3xl ring-1 ring-white/5">
                                   <div className="flex items-start gap-5 md:gap-8">
                                       <div className="w-14 h-14 md:w-20 md:h-20 flex-shrink-0 rounded-full overflow-hidden border-2 border-white/20 bg-gray-800 shadow-2xl">
-                                          <ImageWithFallback src={review.avatar} alt={review.user} className="w-full h-full object-cover" />
+                                          <ImageWithFallback src={review.avatar} alt={review.user} size="s" className="w-full h-full object-cover" />
                                       </div>
                                       <div className="flex-1 min-w-0">
                                           <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
