@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI, Chat, GenerateContentResponse } from '@google/genai';
+import { GoogleGenAI, Chat } from '@google/genai';
 import { VodDetail, ChatMessage } from '../types';
 
 interface GeminiChatProps {
@@ -14,7 +13,7 @@ const GeminiChat: React.FC<GeminiChatProps> = ({ currentMovie }) => {
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  // Persist the chat session across renders
+  // Use a ref to persist the chat session across renders
   const chatSessionRef = useRef<Chat | null>(null);
 
   useEffect(() => {
@@ -25,12 +24,11 @@ const GeminiChat: React.FC<GeminiChatProps> = ({ currentMovie }) => {
 
   // Re-initialize chat session when the movie context changes
   useEffect(() => {
-      // Direct use of process.env.API_KEY as per guidelines
-      if (!process.env.API_KEY) return;
+      const apiKey = process.env.API_KEY;
+      if (!apiKey) return;
 
       try {
-          // Initialize using named parameters and direct env var access
-          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+          const ai = new GoogleGenAI({ apiKey });
           
           let systemInstruction = "你是一个幽默、知识渊博的电影助手。请用中文简练地回答。";
           if (currentMovie) {
@@ -48,9 +46,8 @@ const GeminiChat: React.FC<GeminiChatProps> = ({ currentMovie }) => {
               systemInstruction += "用户目前在首页浏览。";
           }
 
-          // Use standard gemini-3-flash-preview model for basic text tasks
           chatSessionRef.current = ai.chats.create({
-              model: 'gemini-3-flash-preview',
+              model: 'gemini-2.5-flash',
               config: { systemInstruction }
           });
           
@@ -69,24 +66,24 @@ const GeminiChat: React.FC<GeminiChatProps> = ({ currentMovie }) => {
       setMessages(prev => [...prev, { role: 'user', text: userText }]);
       setIsLoading(true);
 
-      if (!process.env.API_KEY) {
+      const apiKey = process.env.API_KEY;
+      if (!apiKey) {
            setMessages(prev => [...prev, { role: 'model', text: "请配置 API Key 以使用此功能。" }]);
            setIsLoading(false);
            return;
       }
 
       try {
-          // Re-initialize session if ref is lost
+          // Fallback init if ref is null (e.g. first render race condition or error)
           if (!chatSessionRef.current) {
-               const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+               const ai = new GoogleGenAI({ apiKey });
                chatSessionRef.current = ai.chats.create({
-                  model: 'gemini-3-flash-preview',
+                  model: 'gemini-2.5-flash',
                   config: { systemInstruction: "你是一个幽默、知识渊博的电影助手。" }
                });
           }
 
-          // Send message and get text from property (not method)
-          const response: GenerateContentResponse = await chatSessionRef.current.sendMessage({
+          const response = await chatSessionRef.current.sendMessage({
               message: userText
           });
 
@@ -101,6 +98,7 @@ const GeminiChat: React.FC<GeminiChatProps> = ({ currentMovie }) => {
           } else if (error.message?.includes('429')) {
               errorMsg = "请求过多，请稍后再试。";
           } else if (error.message) {
+              // Show detailed error in dev, simplified in prod if needed, but here giving a hint is good
               errorMsg = `错误: ${error.message.slice(0, 50)}...`;
           }
 

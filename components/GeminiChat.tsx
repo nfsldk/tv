@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI, GenerateContentResponse, Chat } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import { VodDetail, ChatMessage } from '../types';
 
 interface GeminiChatProps {
@@ -13,9 +12,6 @@ const GeminiChat: React.FC<GeminiChatProps> = ({ currentMovie }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  
-  // Use Chat type from the GenAI SDK
-  const chatSessionRef = useRef<Chat | null>(null);
 
   useEffect(() => {
       if (isOpen && messagesEndRef.current) {
@@ -23,16 +19,24 @@ const GeminiChat: React.FC<GeminiChatProps> = ({ currentMovie }) => {
       }
   }, [messages, isOpen]);
 
-  // Re-initialize chat session when the movie context changes
-  useEffect(() => {
-      // Direct use of process.env.API_KEY as per guidelines
-      if (!process.env.API_KEY) return;
+  const handleSend = async () => {
+      if (!input.trim() || isLoading) return;
+      const userText = input.trim();
+      setInput('');
+      setMessages(prev => [...prev, { role: 'user', text: userText }]);
+      setIsLoading(true);
+
+      const apiKey = process.env.API_KEY;
+      if (!apiKey) {
+           setMessages(prev => [...prev, { role: 'model', text: "请配置 API Key 以使用此功能。" }]);
+           setIsLoading(false);
+           return;
+      }
 
       try {
-          // Initialize using direct access to the environment variable
-          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-          
+          const ai = new GoogleGenAI({ apiKey });
           let systemInstruction = "你是一个幽默、知识渊博的电影助手。请用中文简练地回答。";
+          
           if (currentMovie) {
               const cleanContent = currentMovie.vod_content ? currentMovie.vod_content.replace(/<[^>]+>/g, '') : '暂无';
               systemInstruction += `
@@ -48,63 +52,17 @@ const GeminiChat: React.FC<GeminiChatProps> = ({ currentMovie }) => {
               systemInstruction += "用户目前在首页浏览。";
           }
 
-          // Selecting gemini-3-flash-preview for conversational text tasks
-          chatSessionRef.current = ai.chats.create({
-              model: 'gemini-3-flash-preview',
+          const response = await ai.models.generateContent({
+              model: 'gemini-2.5-flash',
+              contents: [{ role: 'user', parts: [{ text: userText }] }],
               config: { systemInstruction }
-          });
-          
-          // Reset chat history visually when context changes
-          setMessages([{ role: 'model', text: currentMovie ? `已切换到《${currentMovie.vod_name}》的讨论模式。` : '你好！我是你的观影 AI 助手。' }]);
-
-      } catch (e) {
-          console.error("Failed to init chat session", e);
-      }
-  }, [currentMovie]);
-
-  const handleSend = async () => {
-      if (!input.trim() || isLoading) return;
-      const userText = input.trim();
-      setInput('');
-      setMessages(prev => [...prev, { role: 'user', text: userText }]);
-      setIsLoading(true);
-
-      if (!process.env.API_KEY) {
-           setMessages(prev => [...prev, { role: 'model', text: "请配置 API Key 以使用此功能。" }]);
-           setIsLoading(false);
-           return;
-      }
-
-      try {
-          // Re-initialize chat using direct API Key access if session is null
-          if (!chatSessionRef.current) {
-               const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-               chatSessionRef.current = ai.chats.create({
-                  model: 'gemini-3-flash-preview',
-                  config: { systemInstruction: "你是一个幽默、知识渊博的电影助手。" }
-               });
-          }
-
-          // Use .text property directly to get the response string
-          const response: GenerateContentResponse = await chatSessionRef.current.sendMessage({
-              message: userText
           });
 
           const reply = response.text || "抱歉，我没有理解您的问题。";
           setMessages(prev => [...prev, { role: 'model', text: reply }]);
-      } catch (error: any) {
+      } catch (error) {
           console.error("AI Error", error);
-          let errorMsg = "AI 服务暂时不可用。";
-          
-          if (error.message?.includes('403') || error.toString().includes('403')) {
-              errorMsg = "API Key 无效或无权限。";
-          } else if (error.message?.includes('429')) {
-              errorMsg = "请求过多，请稍后再试。";
-          } else if (error.message) {
-              errorMsg = `错误: ${error.message.slice(0, 50)}...`;
-          }
-
-          setMessages(prev => [...prev, { role: 'model', text: errorMsg }]);
+          setMessages(prev => [...prev, { role: 'model', text: "AI 服务暂时不可用。" }]);
       } finally {
           setIsLoading(false);
       }
